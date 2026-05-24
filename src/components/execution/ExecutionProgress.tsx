@@ -43,7 +43,6 @@ export function ExecutionProgress({
   const [txs, setTxs] = useState<ExecutionTx[]>(initialTransactions);
   const [phase, setPhase] = useState<"running" | "done" | "error">("running");
   const [error, setError] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
   // Stream execution. AbortController makes the dev-mode StrictMode double
   // invocation safe: the first run is aborted before its events apply state,
@@ -133,7 +132,6 @@ export function ExecutionProgress({
         }
         break;
       case "done":
-        if (evt.walletAddress) setWalletAddress(evt.walletAddress);
         setPhase("done");
         break;
       case "error":
@@ -191,17 +189,6 @@ export function ExecutionProgress({
           Taking you to your portfolio…
         </motion.p>
       ) : null}
-
-      {walletAddress && phase === "done" ? (
-        <p className="mt-2 text-center text-[11px] text-text-muted">
-          {/* Short fingerprint only — no raw addresses in user-visible copy. */}
-          Demo account ending in {shortFingerprint(walletAddress)}
-        </p>
-      ) : null}
     </section>
   );
-}
-
-function shortFingerprint(addr: string): string {
-  return addr.slice(-4).toUpperCase();
 }
