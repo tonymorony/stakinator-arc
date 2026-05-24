@@ -134,6 +134,42 @@ export async function findLatestSessionForUser(
   return latest;
 }
 
+/**
+ * Resolves the best anonymous session for authenticated API routes.
+ * Tries body id → cookie id → latest session linked to the user.
+ * When `preferWithAllocation` is set, picks the first candidate that has a plan.
+ */
+export async function resolveAnonymousSession(options: {
+  bodySessionId?: string | null;
+  cookieSessionId?: string | null;
+  userId?: string | null;
+  preferWithAllocation?: boolean;
+}): Promise<SessionData | null> {
+  const candidates: SessionData[] = [];
+  const seen = new Set<string>();
+
+  const push = (session: SessionData | null) => {
+    if (!session || seen.has(session.id)) return;
+    seen.add(session.id);
+    candidates.push(session);
+  };
+
+  for (const id of [options.bodySessionId, options.cookieSessionId]) {
+    if (!id) continue;
+    push(await findSession(id));
+  }
+
+  if (options.userId) {
+    push(await findLatestSessionForUser(options.userId));
+  }
+
+  if (options.preferWithAllocation) {
+    return candidates.find((s) => s.allocationJson) ?? candidates[0] ?? null;
+  }
+
+  return candidates[0] ?? null;
+}
+
 export async function updateSession(
   id: string,
   patch: SessionPatch,

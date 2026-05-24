@@ -57,6 +57,7 @@ export function ExecutionProgress({
         const res = await fetch("/api/operator/execute", {
           method: "POST",
           cache: "no-store",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
@@ -66,7 +67,14 @@ export function ExecutionProgress({
         });
         if (!res.ok || !res.body) {
           const body = await res.text().catch(() => "");
-          throw new Error(body || "Couldn't start the execution.");
+          let message = body || "Couldn't start the execution.";
+          try {
+            const parsed = JSON.parse(body) as { error?: string };
+            if (parsed.error) message = parsed.error;
+          } catch {
+            /* use raw body */
+          }
+          throw new Error(message);
         }
 
         const reader = res.body.getReader();

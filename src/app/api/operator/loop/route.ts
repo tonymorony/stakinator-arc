@@ -22,7 +22,7 @@
  */
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { findSession, updateSession } from "@/lib/db/sessions";
+import { resolveAnonymousSession, updateSession } from "@/lib/db/sessions";
 import { getAuthSession } from "@/lib/auth/session";
 import { findUserById } from "@/lib/auth/users";
 import {
@@ -83,13 +83,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     const body = (await req.json().catch(() => null)) as
       | { sessionId?: string; simulate?: boolean }
       | null;
-    const sessionId = body?.sessionId ?? sidFromCookie;
     const simulate = body?.simulate !== false; // demo default = simulate ON
-
-    if (!sessionId) {
-      return Response.json({ error: "Missing session" }, { status: 400 });
-    }
-    const session = await findSession(sessionId);
+    const session = await resolveAnonymousSession({
+      bodySessionId: body?.sessionId,
+      cookieSessionId: sidFromCookie,
+      userId: user.id,
+      preferWithAllocation: true,
+    });
     if (!session?.mandateJson || !session.allocationJson) {
       return Response.json(
         { error: "No portfolio to monitor yet" },

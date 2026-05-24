@@ -126,6 +126,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
         send({
           type: "done",
+          sessionId: activeSessionId,
           allocation: final,
           fullExplanation,
           source,

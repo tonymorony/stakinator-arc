@@ -15,6 +15,7 @@ import { notifyAuthChanged } from "@/lib/auth/client-events";
 import {
   getStoredMandate,
   resolveSessionId,
+  setStoredSessionId,
 } from "@/lib/session/client";
 import type { Mandate } from "@/lib/inquisitor";
 
@@ -27,6 +28,7 @@ interface StrategyViewProps {
 interface StrategyEvent {
   type: "text" | "done" | "error";
   content?: string;
+  sessionId?: string;
   allocation?: Allocation;
   fullExplanation?: string;
   source?: "llm" | "fallback";
@@ -69,6 +71,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
         }
         break;
       case "done":
+        if (evt.sessionId) setStoredSessionId(evt.sessionId);
         if (evt.allocation) setAllocation(evt.allocation);
         if (evt.fullExplanation) setExplanation(evt.fullExplanation);
         else if (evt.allocation?.explanation) setExplanation(evt.allocation.explanation);
@@ -114,8 +117,10 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
       }
       if (res.ok) {
         const data = (await res.json()) as {
+          sessionId?: string;
           user?: { walletAddress?: string | null };
         };
+        if (data.sessionId) setStoredSessionId(data.sessionId);
         if (data.user?.walletAddress) setWalletAddress(data.user.walletAddress);
       }
     } catch {
@@ -137,6 +142,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
         const res = await fetch("/api/operator/strategy", {
           method: "POST",
           cache: "no-store",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",

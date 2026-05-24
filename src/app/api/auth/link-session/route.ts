@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getAuthSession } from "@/lib/auth/session";
-import { findSession, updateSession } from "@/lib/db/sessions";
+import { resolveAnonymousSession, updateSession } from "@/lib/db/sessions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,13 +32,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = (await req.json().catch(() => null)) as
     | { sessionId?: string }
     | null;
-  const sessionId = body?.sessionId ?? sidFromCookie;
 
-  if (!sessionId) {
-    return NextResponse.json({ error: "Missing session" }, { status: 400 });
-  }
-
-  const session = await findSession(sessionId);
+  const session = await resolveAnonymousSession({
+    bodySessionId: body?.sessionId,
+    cookieSessionId: sidFromCookie,
+    userId: authed.sub,
+  });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
@@ -50,7 +49,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const linked = await updateSession(sessionId, { userId: authed.sub });
+  const linked = await updateSession(session.id, { userId: authed.sub });
 
   // Stable opaque ids derived from the session — usable by PROMPT 3 in the
   // in-memory mode, and replaced by real DB ids when Prisma is wired up.
