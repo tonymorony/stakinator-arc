@@ -7,7 +7,7 @@
  */
 import { type NextRequest } from "next/server";
 import { getAuthSession } from "@/lib/auth/session";
-import { findUserById } from "@/lib/auth/users";
+import { resolveWalletAddress } from "@/lib/auth/users";
 import { getArcPublicClient } from "@/lib/arc/client";
 import { CONTRACTS } from "@/lib/arc/contracts";
 import {
@@ -51,12 +51,12 @@ export async function GET(_req: NextRequest): Promise<Response> {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await findUserById(authed.sub);
-  if (!user?.walletAddress) {
+  const walletAddress = await resolveWalletAddress(authed);
+  if (!walletAddress) {
     return Response.json({ error: "No wallet provisioned" }, { status: 404 });
   }
 
-  const addr = user.walletAddress as `0x${string}`;
+  const addr = walletAddress as `0x${string}`;
 
   try {
     const [usdc, eurc, usyc] = await Promise.all([
@@ -66,7 +66,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
     ]);
 
     return Response.json({
-      walletAddress: user.walletAddress,
+      walletAddress,
       usdc,
       eurc,
       usyc,

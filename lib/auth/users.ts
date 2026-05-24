@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { hasDatabase, prisma } from "@/lib/db/client";
+import { provisionWallet } from "@/lib/arc/wallet";
 
 export interface AppUser {
   id: string;
@@ -133,6 +134,43 @@ export async function updateUser(id: string, patch: UserPatch): Promise<AppUser>
   const next: AppUser = { ...existing, ...patch };
   memoryStore.set(id, next);
   return next;
+}
+
+/**
+ * Wallet address for an authenticated request — DB first, then the signed
+ * session cookie, then deterministic re-provision from email.
+ */
+export async function resolveWalletAddress(authed: {
+  sub: string;
+  email: string;
+  walletAddress: string | null;
+}): Promise<string | null> {
+  const user = await findUserById(authed.sub);
+  if (user?.walletAddress) return user.walletAddress;
+
+  const fromSession = authed.walletAddress?.trim();
+  if (fromSession) {
+    if (user) {
+      try {
+        await updateUser(user.id, { walletAddress: fromSession });
+      } catch {
+        /* best-effort persist */
+      }
+    }
+    return fromSession;
+  }
+
+  if (!authed.email) return null;
+
+  const { walletAddress } = await provisionWallet(authed.email);
+  if (user) {
+    try {
+      await updateUser(user.id, { walletAddress });
+    } catch {
+      /* best-effort persist */
+    }
+  }
+  return walletAddress;
 }
 
 interface PrismaUserRow {

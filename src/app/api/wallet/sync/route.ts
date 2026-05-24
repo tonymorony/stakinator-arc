@@ -7,7 +7,7 @@
  */
 import { cookies } from "next/headers";
 import { getAuthSession } from "@/lib/auth/session";
-import { findUserById } from "@/lib/auth/users";
+import { findUserById, resolveWalletAddress } from "@/lib/auth/users";
 import { getArcPublicClient } from "@/lib/arc/client";
 import { CONTRACTS } from "@/lib/arc/contracts";
 import {
@@ -59,21 +59,23 @@ export async function POST(): Promise<Response> {
   const authed = await getAuthSession();
   if (!authed) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const user = await findUserById(authed.sub);
-  if (!user?.walletAddress) {
+  const walletAddress = await resolveWalletAddress(authed);
+  if (!walletAddress) {
     return Response.json({ error: "No wallet" }, { status: 404 });
   }
+
+  const user = await findUserById(authed.sub);
 
   const jar = await cookies();
   const sid = jar.get(ANON_COOKIE)?.value ?? null;
   let session = sid ? await findSession(sid) : null;
   if (!session) {
-    session = await findLatestSessionForUser(user.id);
+    session = await findLatestSessionForUser(authed.sub);
   }
 
   const allocation = (session?.allocationJson as Allocation | null) ?? null;
 
-  const addr = user.walletAddress as `0x${string}`;
+  const addr = walletAddress as `0x${string}`;
 
   try {
     const [usdc, eurc, usycOnChain, apy] = await Promise.all([
@@ -85,8 +87,10 @@ export async function POST(): Promise<Response> {
 
     const walletTotal = usdc + eurc + usycOnChain;
 
+    const userId = user?.id ?? authed.sub;
+
     const positions = allocation
-      ? await syncPositionsToAllocation(user.id, walletTotal, allocation)
+      ? await syncPositionsToAllocation(userId, walletTotal, allocation)
       : [];
 
     const portfolioTotal = allocation
@@ -114,7 +118,7 @@ export async function POST(): Promise<Response> {
     const annualYield = annualYieldFromAllocation(portfolioTotal, allocation, apy);
 
     return Response.json({
-      walletAddress: user.walletAddress,
+      walletAddress,
       chain: { usdc, eurc, usyc: usycOnChain },
       portfolio,
       total: portfolioTotal,
