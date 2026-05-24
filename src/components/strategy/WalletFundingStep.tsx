@@ -5,28 +5,52 @@ import { WizardIcon } from "@/components/WizardIcon";
 
 interface WalletFundingStepProps {
   onFunded: () => void;
+  /** From OTP response — shown immediately while balance API loads. */
+  initialWalletAddress?: string | null;
+  onAuthRequired?: () => void;
 }
 
 const FAUCET_URL = "https://faucet.circle.com";
 const POLL_INTERVAL_MS = 3000;
 
-export function WalletFundingStep({ onFunded }: WalletFundingStepProps) {
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+export function WalletFundingStep({
+  onFunded,
+  initialWalletAddress = null,
+  onAuthRequired,
+}: WalletFundingStepProps) {
+  const [walletAddress, setWalletAddress] = useState<string | null>(
+    initialWalletAddress,
+  );
   const [usdc, setUsdc] = useState<number>(0);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchBalance = useCallback(async () => {
     try {
-      const res = await fetch("/api/wallet/balance", { cache: "no-store" });
+      const res = await fetch("/api/wallet/balance", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        onAuthRequired?.();
+        setError("Session expired — please sign in again.");
+        return;
+      }
       if (!res.ok) return;
       const data = (await res.json()) as { walletAddress: string; usdc: number };
       setWalletAddress(data.walletAddress);
       setUsdc(data.usdc);
+      setError(null);
     } catch {
       setError("Couldn't reach the network — check your connection.");
     }
-  }, []);
+  }, [onAuthRequired]);
+
+  useEffect(() => {
+    if (initialWalletAddress) {
+      setWalletAddress(initialWalletAddress);
+    }
+  }, [initialWalletAddress]);
 
   useEffect(() => {
     void fetchBalance();

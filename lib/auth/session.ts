@@ -9,27 +9,53 @@
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
 
 const AUTH_COOKIE = "stak.auth";
 const ONE_MONTH = 60 * 60 * 24 * 30;
+/** Must match the fallback in `lib/arc/wallet.ts` — never per-instance random keys. */
+const DEV_SECRET_FALLBACK = "dev-secret-set-nextauth-secret";
 
 declare global {
   // eslint-disable-next-line no-var
   var __stakAuthSecret: string | undefined;
+  // eslint-disable-next-line no-var
+  var __stakAuthSecretWarned: boolean | undefined;
 }
 
 function getSecret(): string {
   const fromEnv = process.env.NEXTAUTH_SECRET;
   if (fromEnv && fromEnv.length > 0) return fromEnv;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!globalThis.__stakAuthSecretWarned) {
+      globalThis.__stakAuthSecretWarned = true;
+      // eslint-disable-next-line no-console
+      console.error(
+        "[auth] NEXTAUTH_SECRET is not set on this deployment. " +
+          "Auth cookies will not survive across serverless instances until you add it in Vercel env vars.",
+      );
+    }
+    return DEV_SECRET_FALLBACK;
+  }
+
   if (!globalThis.__stakAuthSecret) {
     globalThis.__stakAuthSecret = randomBytes(32).toString("hex");
     // eslint-disable-next-line no-console
     console.warn(
-      "[auth] NEXTAUTH_SECRET is empty — using an ephemeral key. Sessions reset on every dev restart.",
+      "[auth] NEXTAUTH_SECRET is empty — using an ephemeral dev key. Sessions reset on every dev restart.",
     );
   }
   return globalThis.__stakAuthSecret;
 }
+
+export const AUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: ONE_MONTH,
+};
 
 export interface AuthSessionPayload {
   sub: string; // user id
@@ -74,16 +100,23 @@ function verify(token: string): AuthSessionPayload | null {
   }
 }
 
+export function createAuthToken(payload: Omit<AuthSessionPayload, "iat">): string {
+  return sign({ ...payload, iat: Math.floor(Date.now() / 1000) });
+}
+
 export async function setAuthSession(payload: Omit<AuthSessionPayload, "iat">): Promise<void> {
-  const token = sign({ ...payload, iat: Math.floor(Date.now() / 1000) });
+  const token = createAuthToken(payload);
   const jar = await cookies();
-  jar.set(AUTH_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: ONE_MONTH,
-  });
+  jar.set(AUTH_COOKIE, token, AUTH_COOKIE_OPTIONS);
+}
+
+/** Prefer this in Route Handlers so Set-Cookie is bound to the returned response. */
+export function attachAuthSession(
+  response: NextResponse,
+  payload: Omit<AuthSessionPayload, "iat">,
+): NextResponse {
+  response.cookies.set(AUTH_COOKIE, createAuthToken(payload), AUTH_COOKIE_OPTIONS);
+  return response;
 }
 
 export async function clearAuthSession(): Promise<void> {

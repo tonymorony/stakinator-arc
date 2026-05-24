@@ -7,7 +7,7 @@ import {
   type AppUser,
 } from "@/lib/auth/users";
 import { provisionWallet } from "@/lib/arc/wallet";
-import { setAuthSession } from "@/lib/auth/session";
+import { attachAuthSession } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,19 +32,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { email } = await verifyOtp(body.email, body.code);
     const user = await ensureUserForEmail(email);
-    await setAuthSession({
-      sub: user.id,
-      email: user.email,
-      walletAddress: user.walletAddress,
-    });
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       user: {
         id: user.id,
         email: user.email,
         walletAddress: user.walletAddress,
       },
+    });
+    return attachAuthSession(response, {
+      sub: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
     });
   } catch (err) {
     if (err instanceof OtpError) {

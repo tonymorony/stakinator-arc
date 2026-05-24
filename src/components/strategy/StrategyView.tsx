@@ -48,6 +48,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [isAuthed, setIsAuthed] = useState(initialAuthed);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
   const handleSseFrame = useCallback((frame: string) => {
     const trimmed = frame.trim();
@@ -85,21 +86,38 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
   }, []);
 
   useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
+    fetch("/api/auth/me", { cache: "no-store", credentials: "include" })
       .then((r) => r.json())
-      .then((d: { user: unknown }) => setIsAuthed(Boolean(d.user)))
+      .then((d: { user: { walletAddress?: string | null } | null }) => {
+        setIsAuthed(Boolean(d.user));
+        if (d.user?.walletAddress) setWalletAddress(d.user.walletAddress);
+      })
       .catch(() => setIsAuthed(false));
   }, []);
 
-  const proceedToFunding = useCallback(async () => {
+  const proceedToFunding = useCallback(async (knownWallet?: string | null) => {
+    if (knownWallet) setWalletAddress(knownWallet);
     const sessionId = resolveSessionId();
     try {
-      await fetch("/api/auth/link-session", {
+      const res = await fetch("/api/auth/link-session", {
         method: "POST",
         cache: "no-store",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId }),
       });
+      if (res.status === 401) {
+        setIsAuthed(false);
+        setError("Please sign in again to continue.");
+        setAuthOpen(true);
+        return;
+      }
+      if (res.ok) {
+        const data = (await res.json()) as {
+          user?: { walletAddress?: string | null };
+        };
+        if (data.user?.walletAddress) setWalletAddress(data.user.walletAddress);
+      }
     } catch {
       /* non-fatal in dev */
     }
@@ -195,10 +213,11 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
     router.push("/onboarding");
   }, [router]);
 
-  const handleAuthDone = useCallback(async (_result: AuthModalResult) => {
+  const handleAuthDone = useCallback(async (result: AuthModalResult) => {
     setAuthOpen(false);
     setIsAuthed(true);
-    await proceedToFunding();
+    setWalletAddress(result.walletAddress);
+    await proceedToFunding(result.walletAddress);
   }, [proceedToFunding]);
 
   const handleFunded = useCallback(() => {
@@ -257,7 +276,14 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
               exit={{ opacity: 0 }}
               className="w-full max-w-xl"
             >
-              <WalletFundingStep onFunded={handleFunded} />
+              <WalletFundingStep
+                initialWalletAddress={walletAddress}
+                onAuthRequired={() => {
+                  setIsAuthed(false);
+                  setAuthOpen(true);
+                }}
+                onFunded={handleFunded}
+              />
             </motion.div>
           ) : phase === "ready" && allocation ? (
             <motion.div
