@@ -17,6 +17,12 @@ import {
   type Mandate,
 } from "@/lib/inquisitor";
 import type { ClientQuestion } from "@/lib/inquisitor/serialize";
+import {
+  clearStoredSession,
+  resolveSessionId,
+  setStoredMandate,
+  setStoredSessionId,
+} from "@/lib/session/client";
 
 type DialogueState = "loading" | "question" | "mandate";
 
@@ -80,6 +86,7 @@ export function Dialogue() {
         if (!startRes.ok) throw new Error("Could not start session.");
         const startData = (await startRes.json()) as { sessionId: string };
         sessionIdRef.current = startData.sessionId;
+        setStoredSessionId(startData.sessionId);
 
         const nextRes = await fetch("/api/inquisitor/next", {
           method: "POST",
@@ -151,7 +158,7 @@ export function Dialogue() {
   // ── Submit + consume the SSE stream ─────────────────────────────────────
   const submitAnswer = useCallback(
     async (questionId: string, optionId: string) => {
-      const sessionId = sessionIdRef.current;
+      const sessionId = resolveSessionId(sessionIdRef.current);
       if (!sessionId) {
         setError("Session is not ready yet.");
         return;
@@ -175,6 +182,7 @@ export function Dialogue() {
       await new Promise((r) => setTimeout(r, FLASH_MS));
 
       try {
+        const sessionId = resolveSessionId(sessionIdRef.current);
         const res = await fetch("/api/inquisitor/answer", {
           method: "POST",
           cache: "no-store",
@@ -246,6 +254,7 @@ export function Dialogue() {
       case "done":
         if (evt.mandate) {
           setMandate(evt.mandate);
+          setStoredMandate(evt.mandate);
           setSummary((prev) => prev || evt.mandate!.summary_human);
         }
         setState("mandate");
@@ -291,6 +300,7 @@ export function Dialogue() {
     setReasoning("");
     setState("loading");
     sessionIdRef.current = null;
+    clearStoredSession();
 
     try {
       await fetch("/api/inquisitor/reset", {
@@ -318,7 +328,12 @@ export function Dialogue() {
       <ProbabilityBarsPanel distribution={distribution} reasoning={reasoning} asked={asked} />
 
       <div className="min-h-[calc(100dvh-3.5rem)] bg-gradient-to-b from-[#EDF5FF] to-white">
-      <main className="mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-2xl flex-col items-center justify-center px-4 py-6 lg:pr-64 xl:pr-72">
+      <main className="mx-auto h-[calc(100dvh-3.5rem)] w-full max-w-2xl overflow-y-auto px-4 py-6 lg:pr-64 xl:pr-72">
+        <div
+          className={`flex min-h-full w-full flex-col items-center ${
+            isMandateState ? "justify-start py-4" : "justify-center py-4"
+          }`}
+        >
         {error ? (
           <ErrorBanner message={error} onDismiss={() => setError(null)} />
         ) : null}
@@ -398,6 +413,7 @@ export function Dialogue() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </main>
       </div>
     </>

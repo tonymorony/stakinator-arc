@@ -11,6 +11,11 @@ import { AllocationCard } from "./AllocationCard";
 import { WalletFundingStep } from "./WalletFundingStep";
 import { stripStrategyJson, type Allocation } from "@/lib/ai/allocation";
 import { notifyAuthChanged } from "@/lib/auth/client-events";
+import {
+  getStoredMandate,
+  resolveSessionId,
+} from "@/lib/session/client";
+import type { Mandate } from "@/lib/inquisitor";
 
 type Phase = "starting" | "streaming" | "ready" | "funding" | "executing" | "no-session";
 
@@ -86,12 +91,13 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
   }, []);
 
   const proceedToFunding = useCallback(async () => {
+    const sessionId = resolveSessionId();
     try {
       await fetch("/api/auth/link-session", {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ sessionId }),
       });
     } catch {
       /* non-fatal in dev */
@@ -106,6 +112,8 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
 
     const run = async () => {
       setPhase("streaming");
+      const sessionId = resolveSessionId();
+      const cachedMandate = getStoredMandate<Mandate>();
       try {
         const res = await fetch("/api/operator/strategy", {
           method: "POST",
@@ -114,11 +122,19 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            sessionId,
+            ...(cachedMandate ? { mandate: cachedMandate } : {}),
+          }),
           signal: abort.signal,
         });
 
         if (res.status === 400 || res.status === 404) {
+          setError(
+            cachedMandate
+              ? "Could not reach your profile on the server. Try again or restart the questions."
+              : "Your session expired. Please answer the questions again.",
+          );
           setPhase("no-session");
           return;
         }

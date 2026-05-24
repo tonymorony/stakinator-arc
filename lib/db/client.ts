@@ -12,9 +12,7 @@ declare global {
 export const prisma: PrismaClient =
   globalThis.__prisma ?? new PrismaClient({ log: ["error"] });
 
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__prisma = prisma;
-}
+globalThis.__prisma = prisma;
 
 /** True when DATABASE_URL is set to a non-empty value. */
 export function hasDatabase(): boolean {

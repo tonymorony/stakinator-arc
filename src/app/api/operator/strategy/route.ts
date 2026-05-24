@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { findSession, updateSession } from "@/lib/db/sessions";
+import { createSession, findSession, updateSession } from "@/lib/db/sessions";
 import { stripStrategyJson, type Allocation } from "@/lib/ai/allocation";
 import {
   estimatedAnnualEarningsUsd,
@@ -37,18 +37,35 @@ export async function POST(req: NextRequest): Promise<Response> {
   const sidFromCookie = jar.get(COOKIE_NAME)?.value;
 
   const body = (await req.json().catch(() => null)) as
-    | { sessionId?: string }
+    | { sessionId?: string; mandate?: Mandate }
     | null;
   const sessionId = body?.sessionId ?? sidFromCookie;
 
-  if (!sessionId) {
+  if (!sessionId && !body?.mandate) {
     return Response.json({ error: "Missing session" }, { status: 400 });
   }
 
-  const session = await findSession(sessionId);
+  let session = sessionId ? await findSession(sessionId) : null;
+
+  // Client cached mandate when serverless lost the in-memory session.
+  if (!session && body?.mandate) {
+    const fresh = await createSession();
+    await updateSession(fresh.id, { mandateJson: body.mandate });
+    session = { ...fresh, mandateJson: body.mandate };
+    jar.set(COOKIE_NAME, fresh.id, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+  }
+
   if (!session) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
+
+  const activeSessionId = session.id;
 
   // Rebuild the mandate from whatever we have. Prefer the saved snapshot;
   // fall back to the latest distribution + askedIds.
@@ -62,7 +79,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       );
     }
     mandate = buildMandate(session.distribution, session.askedIds.length);
-    await updateSession(sessionId, { mandateJson: mandate });
+    await updateSession(activeSessionId, { mandateJson: mandate });
   }
 
   const usycApy = await getCurrentAPY();
@@ -99,7 +116,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         const final = pickFinalExplanation(allocation, fullText);
         const fullExplanation = stripStrategyJson(fullText);
 
-        await updateSession(sessionId, { allocationJson: final });
+        await updateSession(activeSessionId, { allocationJson: final });
 
         const capital = totalCapitalUsd(mandate);
         const annualEarnings = estimatedAnnualEarningsUsd(mandate, final, usycApy);

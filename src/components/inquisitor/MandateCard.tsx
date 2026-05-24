@@ -34,11 +34,11 @@ export function MandateCard({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="mx-auto max-w-md py-10 text-center"
+      className="mx-auto w-full max-w-md py-4 text-center sm:py-6"
     >
-      <div className="mx-auto mb-5 w-28">
+      <div className="mx-auto mb-4 w-24 shrink-0 sm:mb-5 sm:w-28">
         <WizardIcon
-          size={112}
+          size={96}
           variant="celebrate"
           className="wizard-glow mx-auto"
           rounded="rounded-2xl"
@@ -50,9 +50,11 @@ export function MandateCard({
         Here&apos;s what I found out about you:
       </p>
 
-      <p className="mb-6 font-display text-xl leading-relaxed text-text-primary">
-        {summary || (mandate ? mandate.summary_human : "Putting it together…")}
-      </p>
+      <div className="mb-6 max-h-[min(42dvh,20rem)] overflow-y-auto rounded-2xl border border-border/70 bg-white/90 px-5 py-4 text-left shadow-[0_4px_24px_-4px_rgba(74,159,255,0.1)] [scrollbar-gutter:stable]">
+        <p className="font-display text-base leading-relaxed text-text-primary sm:text-lg">
+          {summary || (mandate ? mandate.summary_human : "Putting it together…")}
+        </p>
+      </div>
 
       {mandate ? (
         <ul className="mb-8 flex flex-wrap justify-center gap-2">

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { WizardIcon } from "@/components/WizardIcon";
 import { SpeechBubble } from "@/components/inquisitor/SpeechBubble";
+import { setStoredSessionId } from "@/lib/session/client";
 
 export function HomeClient() {
   const router = useRouter();
@@ -14,10 +15,14 @@ export function HomeClient() {
     if (busy || pending) return;
     setBusy(true);
     try {
-      await fetch("/api/inquisitor/start", {
+      const res = await fetch("/api/inquisitor/start", {
         method: "POST",
         cache: "no-store",
       });
+      if (res.ok) {
+        const data = (await res.json()) as { sessionId?: string };
+        if (data.sessionId) setStoredSessionId(data.sessionId);
+      }
     } catch {
       /* The onboarding page recovers if the cookie is missing. */
     }

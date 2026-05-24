@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { resolveSessionId } from "@/lib/session/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { WizardIcon } from "@/components/WizardIcon";
 import { TransactionRow, type ExecutionTx } from "./TransactionRow";
@@ -60,7 +61,7 @@ export function ExecutionProgress({
             "Content-Type": "application/json",
             Accept: "text/event-stream",
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ sessionId: resolveSessionId() }),
           signal: abort.signal,
         });
         if (!res.ok || !res.body) {
