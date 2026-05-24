@@ -150,12 +150,6 @@ export function WalletFundingStep({
           </button>
         </div>
       </div>
-
-      {/* Future note for judges */}
-      <p className="max-w-sm text-center text-xs text-text-muted">
-        In production, Circle Programmable Wallets will fund users automatically —
-        no faucet step needed.
-      </p>
     </div>
   );
 }
