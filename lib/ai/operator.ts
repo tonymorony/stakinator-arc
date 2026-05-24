@@ -356,12 +356,17 @@ function deterministicNarration(mandate: Mandate, market: MarketData): string {
   } else {
     parts.push(`.`);
   }
-  const explanation = parts.join("");
-  const json = JSON.stringify(allocation);
-  return `${explanation}\n${json}`;
+  return parts.join("");
 }
 
-function templatePreset(mandate: Mandate): Allocation {
+/** Deterministic allocation when the LLM stream falls back. */
+export function fallbackAllocation(mandate: Mandate, explanation: string): Allocation {
+  const preset = templatePreset(mandate);
+  const trimmed = explanation.trim();
+  return trimmed ? { ...preset, explanation: trimmed } : preset;
+}
+
+export function templatePreset(mandate: Mandate): Allocation {
   const horizon = mandate.horizon;
   const isEur = mandate.currency_preference === "eur";
   switch (mandate.risk_tolerance) {

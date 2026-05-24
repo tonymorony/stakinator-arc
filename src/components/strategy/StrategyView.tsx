@@ -8,6 +8,7 @@ import { WizardIcon } from "@/components/WizardIcon";
 import { AuthModal, type AuthModalResult } from "@/components/auth/AuthModal";
 import { ExecutionProgress } from "@/components/execution/ExecutionProgress";
 import { AllocationCard } from "./AllocationCard";
+import { StreamingText } from "./StreamingText";
 import { WalletFundingStep } from "./WalletFundingStep";
 import { stripStrategyJson, type Allocation } from "@/lib/ai/allocation";
 import { notifyAuthChanged } from "@/lib/auth/client-events";
@@ -313,10 +314,15 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
                 Building your plan…
               </p>
 
-              <p className="mt-3 max-w-sm text-sm leading-relaxed text-text-muted">
-                {explanation ||
-                  "Looking at your profile and today\u2019s rates\u2026"}
-              </p>
+              <div className="mt-5 w-full max-w-md">
+                {explanation ? (
+                  <StreamingText text={explanation} caret className="text-left" />
+                ) : (
+                  <p className="text-sm leading-relaxed text-text-muted">
+                    Looking at your profile and today&apos;s rates&hellip;
+                  </p>
+                )}
+              </div>
 
               <div className="mt-6 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-earn" />

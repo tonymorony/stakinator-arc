@@ -4,6 +4,7 @@ import { createSession, findSession, updateSession } from "@/lib/db/sessions";
 import { stripStrategyJson, type Allocation } from "@/lib/ai/allocation";
 import {
   estimatedAnnualEarningsUsd,
+  fallbackAllocation,
   parseAllocation,
   streamStrategyText,
   totalCapitalUsd,
@@ -112,9 +113,11 @@ export async function POST(req: NextRequest): Promise<Response> {
           }
         }
 
-        const { allocation } = parseAllocation(fullText, "");
-        const final = pickFinalExplanation(allocation, fullText);
         const fullExplanation = stripStrategyJson(fullText);
+        const final =
+          source === "fallback"
+            ? fallbackAllocation(mandate, fullExplanation)
+            : pickFinalExplanation(parseAllocation(fullText, fullExplanation).allocation, fullExplanation);
 
         await updateSession(activeSessionId, { allocationJson: final });
 
@@ -156,15 +159,7 @@ export async function POST(req: NextRequest): Promise<Response> {
  * appended inline. If the explanation is empty after stripping, fall back to
  * the parsed allocation's stored explanation.
  */
-function pickFinalExplanation(allocation: Allocation, fullText: string): Allocation {
-  const stripped = fullText
-    .replace(/```json[\s\S]*?```/gi, "")
-    .replace(/\{[^{}]*"template"[^{}]*\}/i, "")
-    .replace(/^[\s,]+|[\s,]+$/g, "")
-    .trim();
-
-  const final =
-    stripped && stripped.length > 20 ? stripped : allocation.explanation;
-
+function pickFinalExplanation(allocation: Allocation, prose: string): Allocation {
+  const final = prose && prose.length > 20 ? prose : allocation.explanation;
   return { ...allocation, explanation: final };
 }
