@@ -8,9 +8,9 @@ import { WizardIcon } from "@/components/WizardIcon";
 import { AuthModal, type AuthModalResult } from "@/components/auth/AuthModal";
 import { ExecutionProgress } from "@/components/execution/ExecutionProgress";
 import { AllocationCard } from "./AllocationCard";
-import { StreamingText } from "./StreamingText";
+import { StrategyBuildingScreen } from "./StrategyBuildingScreen";
 import { WalletFundingStep } from "./WalletFundingStep";
-import { stripStrategyJson, type Allocation } from "@/lib/ai/allocation";
+import { type Allocation } from "@/lib/ai/allocation";
 import { notifyAuthChanged } from "@/lib/auth/client-events";
 import {
   getStoredMandate,
@@ -51,6 +51,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
   const [authOpen, setAuthOpen] = useState(false);
   const [isAuthed, setIsAuthed] = useState(initialAuthed);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [streamProgress, setStreamProgress] = useState(0);
 
   const handleSseFrame = useCallback((frame: string) => {
     const trimmed = frame.trim();
@@ -66,9 +67,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
 
     switch (evt.type) {
       case "text":
-        if (evt.content) {
-          setExplanation((prev) => stripStrategyJson(prev + evt.content!));
-        }
+        setStreamProgress((n) => n + 1);
         break;
       case "done":
         if (evt.sessionId) setStoredSessionId(evt.sessionId);
@@ -136,6 +135,8 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
 
     const run = async () => {
       setPhase("streaming");
+      setStreamProgress(0);
+      setExplanation("");
       const sessionId = resolveSessionId();
       const cachedMandate = getStoredMandate<Mandate>();
       try {
@@ -347,13 +348,7 @@ export function StrategyView({ initialAuthed = false }: StrategyViewProps) {
               </p>
 
               <div className="mt-5 w-full max-w-md">
-                {explanation ? (
-                  <StreamingText text={explanation} caret className="text-left" />
-                ) : (
-                  <p className="text-sm leading-relaxed text-text-muted">
-                    Looking at your profile and today&apos;s rates&hellip;
-                  </p>
-                )}
+                <StrategyBuildingScreen streamProgress={streamProgress} />
               </div>
 
               <div className="mt-6 flex items-center gap-2">

@@ -14,8 +14,20 @@ export interface Allocation {
   explanation: string;
 }
 
-const ALLOCATION_JSON_START =
-  /\{\s*"(?:template|usycPct|liquidPct|eurcPct|growthPct)"/i;
+const ALLOCATION_FIELD =
+  "(?:template|usycPct|liquidPct|eurcPct|growthPct|explanation)";
+
+/** Opening brace of an allocation JSON object (complete or streaming). */
+const ALLOCATION_JSON_START = new RegExp(
+  `\\{\\s*"${ALLOCATION_FIELD}"`,
+  "i",
+);
+
+/** Partial allocation JSON tail while SSE is still in flight. */
+const INCOMPLETE_JSON_TAIL = new RegExp(
+  `[\\s{]*"?${ALLOCATION_FIELD}"?[^}]*$`,
+  "i",
+);
 
 /**
  * Strip allocation JSON (complete, inline, fenced, or partial SSE tail) so users
@@ -29,6 +41,8 @@ export function stripStrategyJson(text: string): string {
   if (jsonStart >= 0) {
     cleaned = cleaned.slice(0, jsonStart);
   }
+
+  cleaned = cleaned.replace(INCOMPLETE_JSON_TAIL, "");
 
   return cleaned.replace(/\s+$/g, "").trim();
 }

@@ -119,13 +119,15 @@ export function buildStrategyPrompt(
     "2. Choose usycPct, liquidPct, eurcPct, growthPct (integers; must sum to 100; stay inside the template's ranges; eurcPct=0 unless currency_preference=eur).",
     "3. Write a warm 2–3 sentence explanation directed AT the user that mentions concrete reasons (their horizon, their risk comfort, today's safe-fund rate vs typical government bond funds).",
     "",
+    "OUTPUT FORMAT:",
+    "- Write the explanation as plain prose first (2–3 sentences).",
+    "- Then a blank line.",
+    "- Then one JSON object on its own (no markdown fences) with exactly these fields:",
+    '{"template":"Vault","usycPct":80,"liquidPct":10,"eurcPct":10,"growthPct":0,"explanation":"same explanation as the prose above"}',
     `VOCABULARY RULES: ${vocab}`,
     "Never use the words: wallet, blockchain, gas, staking, yield, APY, DeFi, protocol, token, seed phrase, USYC, USDC, EURC, hash, contract.",
     "Use friendly names: 'Safe Treasury Fund', 'ready cash', 'Euro reserve', 'growth reserve'.",
     "Refer to returns as 'about X% per year' or 'roughly $Y a year', never 'APY' or 'yield'.",
-    "",
-    "Return ONLY a JSON object on a single line, no markdown, with exactly these fields:",
-    '{"template":"Vault","usycPct":80,"liquidPct":10,"eurcPct":10,"growthPct":0,"explanation":"..."}',
   ].join("\n");
 }
 
@@ -158,7 +160,7 @@ export async function* streamStrategyText(
       model: MODEL,
       max_tokens: 800,
       system:
-        "You are Stakinator's portfolio strategy engine. Reply with a short warm explanation and end with a single JSON object describing the allocation.",
+        "You are Stakinator's portfolio strategy engine. Write a warm 2–3 sentence explanation in plain prose first, then a blank line, then a single JSON allocation object. Never mix JSON into the prose paragraph.",
       messages: [
         { role: "user", content: buildStrategyPrompt(mandate, market) },
       ],
