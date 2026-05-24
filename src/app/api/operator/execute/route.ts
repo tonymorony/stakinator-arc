@@ -15,10 +15,12 @@
  *   on-chain state.
  */
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { resolveAnonymousSession, updateSession } from "@/lib/db/sessions";
-import { getAuthSession } from "@/lib/auth/session";
-import { findUserById } from "@/lib/auth/users";
+import { getAuthSession, attachAuthSession } from "@/lib/auth/session";
+import { ensureUserFromAuthSession } from "@/lib/auth/users";
+import { databaseUnavailableResponse } from "@/lib/db/health";
 import {
   totalCapitalUsd,
   type Allocation,
@@ -44,15 +46,16 @@ export const runtime = "nodejs";
 const ANON_COOKIE = "stak.sid";
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const dbError = await databaseUnavailableResponse();
+  if (dbError) return dbError;
+
   const authed = await getAuthSession();
   if (!authed) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await findUserById(authed.sub);
-  if (!user) {
-    return Response.json({ error: "User not found" }, { status: 404 });
-  }
+  const user = await ensureUserFromAuthSession(authed);
+  const authNeedsSync = user.id !== authed.sub;
 
   const jar = await cookies();
   const sidFromCookie = jar.get(ANON_COOKIE)?.value;
@@ -67,7 +70,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     preferWithAllocation: true,
   });
   if (!session) {
-    return Response.json({ error: "Session not found" }, { status: 404 });
+    return Response.json(
+      {
+        error:
+          "Session not found. Your plan may have expired — go back and rebuild your strategy, then sign in again.",
+      },
+      { status: 404 },
+    );
   }
   if (!session.allocationJson) {
     return Response.json({ error: "No allocation to execute" }, { status: 400 });
@@ -130,7 +139,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     },
   });
 
-  return new Response(stream, {
+  let response = new NextResponse(stream, {
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
@@ -138,6 +147,16 @@ export async function POST(req: NextRequest): Promise<Response> {
       "X-Accel-Buffering": "no",
     },
   });
+
+  if (authNeedsSync) {
+    response = attachAuthSession(response, {
+      sub: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
+    });
+  }
+
+  return response;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

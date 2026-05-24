@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { getAuthSession } from "@/lib/auth/session";
+import { getAuthSession, attachAuthSession } from "@/lib/auth/session";
+import { ensureUserFromAuthSession } from "@/lib/auth/users";
+import { databaseUnavailableResponse } from "@/lib/db/health";
 import { resolveAnonymousSession, updateSession } from "@/lib/db/sessions";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +24,16 @@ const ANON_COOKIE = "stak.sid";
  * session id — they're opaque to downstream consumers.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const dbError = await databaseUnavailableResponse();
+  if (dbError) return dbError;
+
   const authed = await getAuthSession();
   if (!authed) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const user = await ensureUserFromAuthSession(authed);
+  const authNeedsSync = user.id !== authed.sub;
 
   const jar = await cookies();
   const sidFromCookie = jar.get(ANON_COOKIE)?.value;
@@ -36,37 +44,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const session = await resolveAnonymousSession({
     bodySessionId: body?.sessionId,
     cookieSessionId: sidFromCookie,
-    userId: authed.sub,
+    userId: user.id,
   });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  if (session.userId && session.userId !== authed.sub) {
+  if (session.userId && session.userId !== user.id) {
     return NextResponse.json(
       { error: "Session already linked to another account." },
       { status: 409 },
     );
   }
 
-  const linked = await updateSession(session.id, { userId: authed.sub });
+  const linked = await updateSession(session.id, { userId: user.id });
 
   // Stable opaque ids derived from the session — usable by PROMPT 3 in the
   // in-memory mode, and replaced by real DB ids when Prisma is wired up.
   const mandateId = `m_${linked.id}`;
   const allocationId = `a_${linked.id}`;
 
-  return NextResponse.json({
+  let response = NextResponse.json({
     ok: true,
     sessionId: linked.id,
     mandateId,
     allocationId,
     user: {
-      id: authed.sub,
-      email: authed.email,
-      walletAddress: authed.walletAddress,
+      id: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
     },
     hasMandate: Boolean(linked.mandateJson),
     hasAllocation: Boolean(linked.allocationJson),
   });
+
+  if (authNeedsSync) {
+    response = attachAuthSession(response, {
+      sub: user.id,
+      email: user.email,
+      walletAddress: user.walletAddress,
+    }) as typeof response;
+  }
+
+  return response;
 }

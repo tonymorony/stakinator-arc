@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { hasDatabase, prisma } from "./client";
+import { canUseMemoryFallback } from "./health";
 import type { AxisDistribution, Mandate } from "@/lib/inquisitor";
 import { initDistribution } from "@/lib/inquisitor";
 import type { Allocation } from "@/lib/ai/operator";
@@ -43,14 +44,22 @@ if (!globalThis.__stakSessionsStore) {
 let usePrisma = hasDatabase();
 let warnedFallback = false;
 
-function warnFallback(reason: string): void {
-  if (warnedFallback) return;
-  warnedFallback = true;
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[sessions] Persisting anonymous sessions in memory (${reason}). ` +
-      `Configure DATABASE_URL + run \`npx prisma migrate dev\` to persist them in Postgres.`,
-  );
+function disablePrismaAfterError(err: unknown): void {
+  usePrisma = false;
+  const reason = asReason(err);
+  if (!canUseMemoryFallback()) {
+    throw new Error(
+      `[sessions] Database required in production (${reason}). Set DATABASE_URL and run \`npx prisma db push\`.`,
+    );
+  }
+  if (!warnedFallback) {
+    warnedFallback = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[sessions] Persisting anonymous sessions in memory (${reason}). ` +
+        `Configure DATABASE_URL + run \`npx prisma db push\` to persist them in Postgres.`,
+    );
+  }
 }
 
 function freshSession(id: string): SessionData {
@@ -80,8 +89,7 @@ export async function createSession(): Promise<SessionData> {
       });
       return rowToSession(row);
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   const id = randomUUID();
@@ -96,8 +104,7 @@ export async function findSession(id: string): Promise<SessionData | null> {
       const row = await prisma.anonymousSession.findUnique({ where: { id } });
       return row ? rowToSession(row) : null;
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   return memoryStore.get(id) ?? null;
@@ -115,8 +122,7 @@ export async function findLatestSessionForUser(
       });
       return row ? rowToSession(row) : null;
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   let latest: SessionData | null = null;
@@ -232,8 +238,7 @@ export async function updateSession(
       });
       return rowToSession(row);
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   const existing = memoryStore.get(id);

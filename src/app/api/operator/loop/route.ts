@@ -24,7 +24,8 @@ import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { resolveAnonymousSession, updateSession } from "@/lib/db/sessions";
 import { getAuthSession } from "@/lib/auth/session";
-import { findUserById } from "@/lib/auth/users";
+import { ensureUserFromAuthSession } from "@/lib/auth/users";
+import { databaseUnavailableResponse } from "@/lib/db/health";
 import {
   estimatedAnnualEarningsUsd,
   totalCapitalUsd,
@@ -63,12 +64,14 @@ export const runtime = "nodejs";
 const ANON_COOKIE = "stak.sid";
 
 export async function POST(req: NextRequest): Promise<Response> {
+  const dbError = await databaseUnavailableResponse();
+  if (dbError) return dbError;
+
   const authed = await getAuthSession();
   if (!authed) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const user = await findUserById(authed.sub);
-  if (!user) return Response.json({ error: "User not found" }, { status: 404 });
+  const user = await ensureUserFromAuthSession(authed);
 
   if (!tryAcquireLoopLock(user.id)) {
     return Response.json(

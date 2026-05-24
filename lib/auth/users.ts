@@ -4,7 +4,9 @@
  */
 import { randomUUID } from "node:crypto";
 import { hasDatabase, prisma } from "@/lib/db/client";
+import { canUseMemoryFallback } from "@/lib/db/health";
 import { provisionWallet } from "@/lib/arc/wallet";
+import type { AuthSessionPayload } from "@/lib/auth/session";
 
 export interface AppUser {
   id: string;
@@ -39,13 +41,21 @@ if (!globalThis.__stakUsersByEmail) {
 let usePrisma = hasDatabase();
 let warnedFallback = false;
 
-function warnFallback(reason: string): void {
-  if (warnedFallback) return;
-  warnedFallback = true;
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[users] Persisting users in memory (${reason}). Configure DATABASE_URL + run \`npx prisma migrate dev\` for real persistence.`,
-  );
+function disablePrismaAfterError(err: unknown): void {
+  usePrisma = false;
+  const reason = asReason(err);
+  if (!canUseMemoryFallback()) {
+    throw new Error(
+      `[users] Database required in production (${reason}). Set DATABASE_URL and run \`npx prisma db push\`.`,
+    );
+  }
+  if (!warnedFallback) {
+    warnedFallback = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[users] Persisting users in memory (${reason}). Configure DATABASE_URL + run \`npx prisma db push\` for real persistence.`,
+    );
+  }
 }
 
 function asReason(err: unknown): string {
@@ -60,8 +70,7 @@ export async function findUserByEmail(email: string): Promise<AppUser | null> {
       const row = await prisma.user.findUnique({ where: { email: e } });
       return row ? rowToUser(row) : null;
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   const id = memoryEmailIndex.get(e);
@@ -74,8 +83,7 @@ export async function findUserById(id: string): Promise<AppUser | null> {
       const row = await prisma.user.findUnique({ where: { id } });
       return row ? rowToUser(row) : null;
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   return memoryStore.get(id) ?? null;
@@ -96,8 +104,7 @@ export async function createUser(params: {
       });
       return rowToUser(row);
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
 
@@ -125,8 +132,7 @@ export async function updateUser(id: string, patch: UserPatch): Promise<AppUser>
       });
       return rowToUser(row);
     } catch (err) {
-      usePrisma = false;
-      warnFallback(asReason(err));
+      disablePrismaAfterError(err);
     }
   }
   const existing = memoryStore.get(id);
@@ -171,6 +177,52 @@ export async function resolveWalletAddress(authed: {
     }
   }
   return walletAddress;
+}
+
+/**
+ * Ensures a User row exists for a signed auth cookie — heals stale cookies
+ * from pre-DB deploys and serverless in-memory eras.
+ */
+export async function ensureUserFromAuthSession(
+  authed: Pick<AuthSessionPayload, "sub" | "email" | "walletAddress">,
+): Promise<AppUser> {
+  const byId = await findUserById(authed.sub);
+  if (byId) return byId;
+
+  const email = authed.email.toLowerCase();
+  const byEmail = await findUserByEmail(email);
+  if (byEmail) return byEmail;
+
+  let wallet = authed.walletAddress?.trim() || null;
+  if (!wallet) {
+    const provisioned = await provisionWallet(email);
+    wallet = provisioned.walletAddress;
+  }
+
+  if (usePrisma) {
+    try {
+      const row = await prisma.user.create({
+        data: {
+          id: authed.sub,
+          email,
+          walletAddress: wallet ?? undefined,
+        },
+      });
+      return rowToUser(row);
+    } catch (err) {
+      disablePrismaAfterError(err);
+    }
+  }
+
+  const user: AppUser = {
+    id: authed.sub,
+    email,
+    walletAddress: wallet,
+    createdAt: new Date(),
+  };
+  memoryStore.set(user.id, user);
+  memoryEmailIndex.set(email, user.id);
+  return user;
 }
 
 interface PrismaUserRow {
