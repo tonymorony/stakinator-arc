@@ -425,8 +425,10 @@ function EmailStep({
   error,
   onSubmit,
 }: EmailStepProps) {
+  const [fieldReady, setFieldReady] = useState(false);
+
   return (
-    <form onSubmit={onSubmit}>
+    <form autoComplete="off" onSubmit={onSubmit}>
       <WizardIcon size={64} className="mx-auto mb-4" />
       <h2 id={headingId} className="text-center font-display text-2xl text-text-primary">
         Save your strategy
@@ -440,10 +442,17 @@ function EmailStep({
       </label>
       <input
         id={`${headingId}-email`}
-        type="email"
+        type="text"
         inputMode="email"
-        autoComplete="email"
-        autoFocus
+        autoComplete="off"
+        name="stakinator-email"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        data-1p-ignore
+        data-lpignore="true"
+        readOnly={!fieldReady}
+        onFocus={() => setFieldReady(true)}
         required
         placeholder="you@example.com"
         value={email}
@@ -500,7 +509,7 @@ function OtpStep({
   submitting,
 }: OtpStepProps) {
   return (
-    <div>
+    <form autoComplete="off" onSubmit={(e) => e.preventDefault()}>
       <WizardIcon size={64} className="mx-auto mb-4" />
       <h2 id={headingId} className="text-center font-display text-xl text-text-primary">
         Enter your code
@@ -519,7 +528,10 @@ function OtpStep({
             }}
             type="text"
             inputMode="numeric"
-            autoComplete="one-time-code"
+            autoComplete="off"
+            name={`stakinator-otp-${i}`}
+            data-1p-ignore
+            data-lpignore="true"
             maxLength={i === 0 ? OTP_LENGTH : 1}
             value={digit}
             onChange={(e) => onOtpChange(i, e.target.value)}
@@ -569,7 +581,7 @@ function OtpStep({
           </button>
         )}
       </div>
-    </div>
+    </form>
   );
 }
 
