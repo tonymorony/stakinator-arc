@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { findSession, updateSession } from "@/lib/db/sessions";
+import { resolveInquisitorSession, updateSession } from "@/lib/db/sessions";
 import {
   applyAnswer,
   buildMandate,
@@ -36,18 +36,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   const sidFromCookie = jar.get(COOKIE_NAME)?.value;
 
   const body = (await req.json().catch(() => null)) as AnswerBody | null;
-  const sessionId = body?.sessionId ?? sidFromCookie;
   const questionId = body?.questionId;
   const optionId = body?.optionId;
 
-  if (!sessionId || !questionId || !optionId) {
+  if (!questionId || !optionId) {
     return Response.json(
-      { error: "Missing sessionId, questionId or optionId" },
+      { error: "Missing questionId or optionId" },
       { status: 400 },
     );
   }
 
-  const session = await findSession(sessionId);
+  const session = await resolveInquisitorSession({
+    bodySessionId: body?.sessionId,
+    cookieSessionId: sidFromCookie,
+    createIfMissing: false,
+  });
   if (!session) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }

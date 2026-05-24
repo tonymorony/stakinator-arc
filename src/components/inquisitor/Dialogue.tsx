@@ -82,6 +82,7 @@ export function Dialogue() {
         const startRes = await fetch("/api/inquisitor/start", {
           method: "POST",
           cache: "no-store",
+          credentials: "include",
         });
         if (!startRes.ok) throw new Error("Could not start session.");
         const startData = (await startRes.json()) as { sessionId: string };
@@ -91,17 +92,23 @@ export function Dialogue() {
         const nextRes = await fetch("/api/inquisitor/next", {
           method: "POST",
           cache: "no-store",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId: startData.sessionId }),
         });
         if (!nextRes.ok) throw new Error("Could not fetch the first question.");
         const nextData = (await nextRes.json()) as {
+          sessionId?: string;
           question: ClientQuestion;
           distribution: AxisDistribution;
           askedCount: number;
           reasoning: string;
         };
         if (cancelled) return;
+        if (nextData.sessionId) {
+          sessionIdRef.current = nextData.sessionId;
+          setStoredSessionId(nextData.sessionId);
+        }
         setQuestion(nextData.question);
         setDistribution(nextData.distribution);
         setAsked(nextData.askedCount);
@@ -149,6 +156,7 @@ export function Dialogue() {
       void fetch("/api/inquisitor/back", {
         method: "POST",
         cache: "no-store",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId, distribution: prev.distribution, askedIds }),
       });
@@ -186,6 +194,7 @@ export function Dialogue() {
         const res = await fetch("/api/inquisitor/answer", {
           method: "POST",
           cache: "no-store",
+          credentials: "include",
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",

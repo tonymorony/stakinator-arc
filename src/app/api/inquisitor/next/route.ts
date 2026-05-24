@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { findSession } from "@/lib/db/sessions";
+import {
+  ANON_SESSION_COOKIE,
+  anonSessionCookieOptions,
+  resolveInquisitorSession,
+} from "@/lib/db/sessions";
 import { selectNextQuestion } from "@/lib/ai/inquisitor";
 import { sanitizeQuestion } from "@/lib/inquisitor/serialize";
 
 export const dynamic = "force-dynamic";
-
-const COOKIE_NAME = "stak.sid";
 
 /**
  * POST /api/inquisitor/next
@@ -18,23 +20,24 @@ const COOKIE_NAME = "stak.sid";
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const jar = await cookies();
-  const sidFromCookie = jar.get(COOKIE_NAME)?.value;
+  const sidFromCookie = jar.get(ANON_SESSION_COOKIE)?.value;
 
-  let sessionId: string | undefined = sidFromCookie;
-  try {
-    const body = (await req.json().catch(() => null)) as { sessionId?: string } | null;
-    if (body?.sessionId) sessionId = body.sessionId;
-  } catch {
-    /* no-op */
-  }
+  const body = (await req.json().catch(() => null)) as
+    | { sessionId?: string }
+    | null;
 
-  if (!sessionId) {
-    return NextResponse.json({ error: "Missing session" }, { status: 400 });
-  }
+  const session = await resolveInquisitorSession({
+    bodySessionId: body?.sessionId,
+    cookieSessionId: sidFromCookie,
+    createIfMissing: true,
+  });
 
-  const session = await findSession(sessionId);
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
+  if (session.id !== sidFromCookie) {
+    jar.set(ANON_SESSION_COOKIE, session.id, anonSessionCookieOptions);
   }
 
   const selection = await selectNextQuestion({
@@ -48,6 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({
+    sessionId: session.id,
     question: sanitizeQuestion(selection.question),
     distribution: session.distribution,
     askedCount: session.askedIds.length,

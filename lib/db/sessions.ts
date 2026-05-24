@@ -170,6 +170,37 @@ export async function resolveAnonymousSession(options: {
   return candidates[0] ?? null;
 }
 
+export const ANON_SESSION_COOKIE = "stak.sid";
+export const ANON_SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+
+export const anonSessionCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: ANON_SESSION_COOKIE_MAX_AGE,
+};
+
+/**
+ * Onboarding session lookup — tries body id, then cookie. Optionally creates
+ * a fresh session when neither resolves (serverless / no-DB bootstrap).
+ */
+export async function resolveInquisitorSession(options: {
+  bodySessionId?: string | null;
+  cookieSessionId?: string | null;
+  createIfMissing?: boolean;
+}): Promise<SessionData | null> {
+  for (const id of [options.bodySessionId, options.cookieSessionId]) {
+    if (!id) continue;
+    const found = await findSession(id);
+    if (found) return found;
+  }
+  if (options.createIfMissing) {
+    return createSession();
+  }
+  return null;
+}
+
 export async function updateSession(
   id: string,
   patch: SessionPatch,

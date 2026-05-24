@@ -18,6 +18,7 @@ export function HomeClient() {
       const res = await fetch("/api/inquisitor/start", {
         method: "POST",
         cache: "no-store",
+        credentials: "include",
       });
       if (res.ok) {
         const data = (await res.json()) as { sessionId?: string };
