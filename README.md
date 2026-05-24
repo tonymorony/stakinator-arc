@@ -107,3 +107,5 @@ The repo deliberately ships with zero dead dependencies: every package in
 Built in two weeks for the [Agora Agents Hackathon](https://agora.thecanteenapp.com)
 on [Arc](https://www.circle.com/arc), powered by [Circle](https://developers.circle.com)
 and [Claude](https://www.anthropic.com).
+
+Licensed under the [MIT License](LICENSE).
