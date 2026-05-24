@@ -322,10 +322,19 @@ export function Dialogue() {
   // ── Render ──────────────────────────────────────────────────────────────
   const isMandateState = state === "mandate" || mandate !== null;
   const isLoading = state === "loading" && !isMandateState;
+  const askedIds = useMemo(
+    () => history.map((h) => h.question.id),
+    [history],
+  );
 
   return (
     <>
-      <ProbabilityBarsPanel distribution={distribution} reasoning={reasoning} asked={asked} />
+      <ProbabilityBarsPanel
+        distribution={distribution}
+        reasoning={reasoning}
+        asked={asked}
+        askedIds={askedIds}
+      />
 
       <div className="min-h-[calc(100dvh-3.5rem)] bg-gradient-to-b from-[#EDF5FF] to-white">
       <main className="mx-auto h-[calc(100dvh-3.5rem)] w-full max-w-2xl overflow-y-auto px-4 py-6 lg:pr-64 xl:pr-72">

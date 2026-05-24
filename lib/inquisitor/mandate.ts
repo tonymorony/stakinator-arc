@@ -41,6 +41,9 @@ const GOAL_PHRASES: Record<GoalType, string> = {
   exploration: "explore what's possible",
 };
 
+/** Default capital tier — dollar amount is chosen on the strategy slider, not here. */
+export const DEFAULT_CAPITAL_TIER: CapitalTier = "$1k-10k";
+
 const CAPITAL_PHRASES: Record<CapitalTier, string> = {
   "<$1k": "under $1,000",
   "$1k-10k": "$1,000–$10,000",
@@ -88,7 +91,7 @@ export function buildMandate(
 
   const risk = values.risk_tolerance as RiskTolerance;
   const horizon = values.horizon as Horizon;
-  const capital_tier = values.capital_tier as CapitalTier;
+  const capital_tier = DEFAULT_CAPITAL_TIER;
   const goal_type = values.goal_type as GoalType;
   const liquidity = values.liquidity as Liquidity;
   const crypto_fluency = values.crypto_fluency as CryptoFluency;
@@ -112,7 +115,7 @@ export function buildMandate(
     confidence: {
       risk_tolerance: confidence.risk_tolerance,
       horizon: confidence.horizon,
-      capital_tier: confidence.capital_tier,
+      capital_tier: 0,
       goal_type: confidence.goal_type,
       liquidity: confidence.liquidity,
       crypto_fluency: confidence.crypto_fluency,

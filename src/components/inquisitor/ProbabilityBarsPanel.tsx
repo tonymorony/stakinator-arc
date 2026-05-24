@@ -1,9 +1,11 @@
 "use client";
 
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   AXIS_LABELS,
   AXIS_TITLES,
+  axesProbedByQuestions,
   type AxisDistribution,
   type AxisName,
 } from "@/lib/inquisitor";
@@ -12,30 +14,48 @@ interface ProbabilityBarsPanelProps {
   distribution: AxisDistribution;
   reasoning?: string;
   asked?: number;
+  /** Question ids already answered — used to hide unprobed / noisy axes. */
+  askedIds?: string[];
 }
 
-const AXIS_ORDER: AxisName[] = [
+/** Sidebar axes only — capital amount is chosen on /strategy, not inferred here. */
+const SIDEBAR_AXES: AxisName[] = [
   "goal_type",
   "risk_tolerance",
   "horizon",
   "liquidity",
-  "capital_tier",
   "crypto_fluency",
 ];
 
-/** Hide an axis until the leading bucket has meaningful signal. */
-const MIN_LEAD_PCT = 22;
+/** Minimum lead before we show an axis at all. */
+const MIN_LEAD_PCT = 30;
+/** Lead must beat second place by at least this much to show the axis. */
+const MIN_LEAD_MARGIN = 12;
 
 export function ProbabilityBarsPanel({
   distribution,
   reasoning,
   asked = 0,
+  askedIds = [],
 }: ProbabilityBarsPanelProps) {
-  const visibleAxes = AXIS_ORDER.map((axis) => ({
+  const probed = useMemo(() => axesProbedByQuestions(askedIds), [askedIds]);
+
+  const visibleAxes = SIDEBAR_AXES.map((axis) => {
+    const entries = topEntries(distribution, axis);
+    const leadPct = entries[0]?.pct ?? 0;
+    const secondPct = entries[1]?.pct ?? 0;
+    return { axis, entries, leadPct, margin: leadPct - secondPct };
+  }).filter(({ axis, leadPct, margin, entries }) => {
+    if (!probed.has(axis)) return false;
+    if (entries.length === 0) return false;
+    if (leadPct < MIN_LEAD_PCT) return false;
+    if (entries.length > 1 && margin < MIN_LEAD_MARGIN) return false;
+    return true;
+  }).map(({ axis, entries, leadPct, margin }) => ({
     axis,
-    entries: topEntries(distribution, axis),
-    leadPct: topEntries(distribution, axis)[0]?.pct ?? 0,
-  })).filter(({ leadPct }) => leadPct >= MIN_LEAD_PCT || asked >= 5);
+    entries: entries.length > 1 && margin < MIN_LEAD_MARGIN ? entries.slice(0, 1) : entries.slice(0, 2),
+    leadPct,
+  }));
 
   const headline =
     asked === 0
@@ -103,8 +123,7 @@ function topEntries(
       pct: Math.round(value * 100),
     }))
     .sort((a, b) => b.pct - a.pct)
-    .filter((e) => e.pct >= 8)
-    .slice(0, 3);
+    .filter((e) => e.pct >= 8);
 }
 
 function AxisCard({

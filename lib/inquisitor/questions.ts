@@ -12,7 +12,7 @@ import type { Question } from "./types";
  *   risk_tolerance   – Q_RISK_SCENARIO, Q_RISK_VOLATILITY, Q_RISK_HISTORY
  *   horizon          – Q_HORIZON_ACCESS, Q_HORIZON_LIFE, Q_HORIZON_PATIENCE
  *   liquidity        – Q_LIQUIDITY_USE, Q_LIQUIDITY_LOCK
- *   capital_tier     – Q_CAPITAL_AMOUNT, Q_CAPITAL_RHYTHM
+ *   capital_tier     – not asked (amount chosen on /strategy slider)
  *   crypto_fluency   – Q_EXPERIENCE_BACKGROUND, Q_EXPERIENCE_DIGITAL
  *
  * Signal weight semantics (multiplicative):
@@ -516,13 +516,13 @@ const Q_LIQUIDITY_LOCK: Question = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CAPITAL axis (2 questions)
+// GOAL / RISK scenario (behavioural — not about capital amount)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Q_CAPITAL_MINDSET: Question = {
   id: "Q_CAPITAL_MINDSET",
   text: "Imagine you wake up with an unexpected $500 bonus. What's your first thought?",
-  axes: { primary: ["goal_type", "risk_tolerance"], secondary: ["capital_tier"] },
+  axes: { primary: ["goal_type", "risk_tolerance"] },
   options: [
     {
       id: "put_safe",
@@ -530,7 +530,6 @@ const Q_CAPITAL_MINDSET: Question = {
       signal: {
         goal_type: { preservation: 3.0, income: 1.5, growth: 0.2, specific_target: 0.5, exploration: 0.1 },
         risk_tolerance: { very_conservative: 3.5, conservative: 2.0, moderate: 0.3, aggressive: 0.05, speculative: 0.02 },
-        capital_tier: { "<$1k": 1.5, "$1k-10k": 1.0, "$10k-100k": 0.5, ">$100k": 0.3 },
       },
     },
     {
@@ -539,7 +538,6 @@ const Q_CAPITAL_MINDSET: Question = {
       signal: {
         goal_type: { specific_target: 2.5, preservation: 1.5, income: 1.0, growth: 0.5, exploration: 0.2 },
         risk_tolerance: { very_conservative: 1.0, conservative: 3.0, moderate: 1.5, aggressive: 0.3, speculative: 0.1 },
-        capital_tier: { "<$1k": 1.0, "$1k-10k": 2.0, "$10k-100k": 1.0, ">$100k": 0.5 },
       },
     },
     {
@@ -548,7 +546,6 @@ const Q_CAPITAL_MINDSET: Question = {
       signal: {
         goal_type: { growth: 2.5, income: 1.5, exploration: 1.0, specific_target: 0.5, preservation: 0.2 },
         risk_tolerance: { very_conservative: 0.1, conservative: 0.5, moderate: 2.5, aggressive: 2.5, speculative: 1.0 },
-        capital_tier: { "<$1k": 0.5, "$1k-10k": 1.5, "$10k-100k": 2.0, ">$100k": 2.0 },
       },
     },
     {
@@ -557,54 +554,12 @@ const Q_CAPITAL_MINDSET: Question = {
       signal: {
         goal_type: { growth: 2.0, exploration: 3.0, income: 0.5, specific_target: 0.5, preservation: 0.05 },
         risk_tolerance: { very_conservative: 0.05, conservative: 0.2, moderate: 1.0, aggressive: 3.0, speculative: 3.0 },
-        capital_tier: { "<$1k": 0.5, "$1k-10k": 1.0, "$10k-100k": 2.0, ">$100k": 2.5 },
       },
     },
   ],
 };
 
-const Q_CAPITAL_RHYTHM: Question = {
-  id: "Q_CAPITAL_RHYTHM",
-  text: "How do you usually like to put money in?",
-  axes: { primary: ["capital_tier"], secondary: ["risk_tolerance", "goal_type"] },
-  options: [
-    {
-      id: "lump_sum",
-      text: "A bigger amount, all at once",
-      signal: {
-        capital_tier: { "<$1k": 0.3, "$1k-10k": 1.0, "$10k-100k": 2.0, ">$100k": 2.0 },
-        risk_tolerance: { moderate: 1.5, aggressive: 1.0 },
-      },
-    },
-    {
-      id: "monthly_drip",
-      text: "Bit by bit, on a schedule",
-      signal: {
-        capital_tier: { "<$1k": 1.0, "$1k-10k": 2.5, "$10k-100k": 1.5, ">$100k": 0.5 },
-        risk_tolerance: { conservative: 2.0, moderate: 1.0 },
-        goal_type: { specific_target: 2.0, growth: 1.5, preservation: 1.0 },
-      },
-    },
-    {
-      id: "test_small",
-      text: "Start small and add later",
-      signal: {
-        capital_tier: { "<$1k": 2.5, "$1k-10k": 1.5, "$10k-100k": 0.3, ">$100k": 0.1 },
-        risk_tolerance: { very_conservative: 1.5, conservative: 2.0, moderate: 0.8 },
-        goal_type: { exploration: 1.5, preservation: 1.0 },
-      },
-    },
-    {
-      id: "exploring_only",
-      text: "Just exploring for now — small amount",
-      signal: {
-        capital_tier: { "<$1k": 3.0, "$1k-10k": 0.8, "$10k-100k": 0.1, ">$100k": 0.05 },
-        goal_type: { exploration: 3.0, growth: 1.0, specific_target: 0.5, preservation: 0.3, income: 0.3 },
-        risk_tolerance: { moderate: 1.0, aggressive: 1.5, speculative: 1.0 },
-      },
-    },
-  ],
-};
+// Q_CAPITAL_RHYTHM removed — deposit amount/rhythm is handled on /strategy.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EXPERIENCE / CRYPTO-FLUENCY axis (2 questions)
@@ -750,7 +705,7 @@ export const QUESTION_POOL: Question[] = [
   // LIQUIDITY
   Q_LIQUIDITY_USE,
   Q_LIQUIDITY_LOCK,
-  // CAPITAL MINDSET (amount no longer asked — slider on strategy page)
+  // GOAL / RISK scenario ($500 bonus — not a capital-amount question)
   Q_CAPITAL_MINDSET,
   // EXPERIENCE
   Q_EXPERIENCE_BACKGROUND,

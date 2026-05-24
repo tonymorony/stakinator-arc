@@ -1,6 +1,4 @@
 import type { AxisDistribution, AxisSignal, AxisName, Question } from "./types";
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Initialise a uniform prior over all mandate buckets
 // ─────────────────────────────────────────────────────────────────────────────
 export function initDistribution(): AxisDistribution {
@@ -165,9 +163,18 @@ export function pickNextQuestion(
 export const RESOLUTION_THRESHOLD = 0.7;
 export const MAX_QUESTIONS = 7;
 
+/** Axes the questionnaire actually resolves — capital amount is chosen on /strategy. */
+const RESOLUTION_AXES: AxisName[] = [
+  "risk_tolerance",
+  "horizon",
+  "goal_type",
+  "liquidity",
+  "crypto_fluency",
+];
+
 export function isResolved(dist: AxisDistribution): boolean {
-  return (Object.values(dist) as Record<string, number>[]).every((axis) =>
-    Object.values(axis).some((p) => p >= RESOLUTION_THRESHOLD),
+  return RESOLUTION_AXES.every((axis) =>
+    Object.values(dist[axis]).some((p) => p >= RESOLUTION_THRESHOLD),
   );
 }
 

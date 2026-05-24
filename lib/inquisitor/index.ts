@@ -28,6 +28,7 @@ export {
   mandateSummaryPrompt,
   vocabLevel,
   VOCAB_RULES,
+  DEFAULT_CAPITAL_TIER,
 } from "./mandate";
 export type {
   AxisDistribution,
@@ -59,7 +60,7 @@ import {
   MAX_QUESTIONS,
   pickNextQuestion,
 } from "./distribution";
-import type { AxisDistribution, Question } from "./types";
+import type { AxisDistribution, Question, AxisName } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Session state (in-memory shape; persisted as JSON in AnonymousSession.distribution + askedIds).
@@ -129,6 +130,19 @@ export function questionsAskedCount(asked: string[]): number {
   return asked.length;
 }
 
+/** Axes touched by at least one answered question (primary axis only). */
+export function axesProbedByQuestions(askedIds: string[]): Set<AxisName> {
+  const probed = new Set<AxisName>();
+  for (const id of askedIds) {
+    const q = findQuestion(id);
+    if (!q) continue;
+    for (const axis of q.axes.primary) {
+      if (axis !== "capital_tier") probed.add(axis);
+    }
+  }
+  return probed;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM reasoning prompt — picks the next question from the full pool.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +160,8 @@ export function buildReasoningPrompt(session: InquisitorSession): string {
   return [
     "You are the Inquisitor — an AI that builds an investor profile in the fewest possible questions.",
     "",
-    "Current probability distribution across the six mandate axes (each axis sums to 1.0):",
+    "Current probability distribution across mandate axes (each axis sums to 1.0).",
+    "Ignore `capital_tier` — the dollar amount is chosen later on the strategy page.",
     JSON.stringify(session.distribution, null, 2),
     "",
     `Questions already asked (${session.asked.length}): ${session.asked.join(", ") || "none"}`,
