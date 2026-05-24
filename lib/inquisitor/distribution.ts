@@ -161,7 +161,7 @@ export function pickNextQuestion(
 // OR the maximum number of questions has been asked.
 // ─────────────────────────────────────────────────────────────────────────────
 export const RESOLUTION_THRESHOLD = 0.7;
-export const MAX_QUESTIONS = 7;
+export const MAX_QUESTIONS = 6;
 
 /** Axes the questionnaire actually resolves — capital amount is chosen on /strategy. */
 const RESOLUTION_AXES: AxisName[] = [
