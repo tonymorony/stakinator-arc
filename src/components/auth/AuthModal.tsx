@@ -425,7 +425,24 @@ function EmailStep({
   error,
   onSubmit,
 }: EmailStepProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [fieldReady, setFieldReady] = useState(false);
+
+  const unlockInput = useCallback((focus = false) => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (el.readOnly) {
+      el.readOnly = false;
+      setFieldReady(true);
+    }
+    if (focus) el.focus();
+  }, []);
+
+  useEffect(() => {
+    if (window.matchMedia("(pointer: coarse)").matches) {
+      unlockInput();
+    }
+  }, [unlockInput]);
 
   return (
     <form autoComplete="off" onSubmit={onSubmit}>
@@ -441,8 +458,9 @@ function EmailStep({
         Email
       </label>
       <input
+        ref={inputRef}
         id={`${headingId}-email`}
-        type="text"
+        type="email"
         inputMode="email"
         autoComplete="off"
         name="stakinator-email"
@@ -452,7 +470,13 @@ function EmailStep({
         data-1p-ignore
         data-lpignore="true"
         readOnly={!fieldReady}
-        onFocus={() => setFieldReady(true)}
+        onPointerDown={(e) => {
+          if (!fieldReady) {
+            e.preventDefault();
+            unlockInput(true);
+          }
+        }}
+        onFocus={() => unlockInput()}
         required
         placeholder="you@example.com"
         value={email}
