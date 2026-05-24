@@ -1,0 +1,366 @@
+---
+description: Rules for all blockchain/Circle SDK interactions — Arc testnet config, USYC, Modular Wallets, App Kit
+globs: ["lib/arc/**", "lib/wallet/**", "app/api/operator/**"]
+---
+
+# Blockchain Layer Rules
+
+## Golden Rule
+
+**The user must never know they're using a blockchain.**
+
+- No transaction signing prompts (Circle Modular Wallets handles this)
+- No "approve spend" dialogs
+- No gas fee display
+- No network switching
+- No wallet address shown by default
+
+---
+
+## Arc Testnet — Network Configuration
+
+```typescript
+// lib/arc/config.ts — single source of truth for all network constants
+export const ARC_TESTNET = {
+  chainId: 5042002,           // decimal; hex: 0x4CEF52
+  name: 'Arc Testnet',
+  rpcUrl: 'https://rpc.testnet.arc.network',
+  wsUrl: 'wss://rpc.testnet.arc.network',
+  explorerUrl: 'https://testnet.arcscan.app',
+  faucetUrl: 'https://faucet.circle.com',
+  nativeCurrency: {
+    name: 'USDC',
+    symbol: 'USDC',
+    decimals: 18,             // USDC as native gas token uses 18 decimals
+  },
+} as const;
+
+// ⚠️ USDC has DUAL decimal representation on Arc:
+//   - As native gas token: 18 decimals
+//   - As ERC-20 token balance/transfer: 6 decimals
+// Always use 6 decimals when reading ERC-20 balances or calling token contracts.
+```
+
+---
+
+## Contract Addresses — Arc Testnet
+
+```typescript
+// lib/arc/contracts.ts
+export const CONTRACTS = {
+  // Tokens
+  USDC:  '0x3600000000000000000000000000000000000000', // 6 decimals (ERC-20)
+  EURC:  '0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a', // 6 decimals
+  USYC:  '0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C', // 6 decimals
+
+  // USYC supporting contracts
+  USYC_ENTITLEMENTS: '0xcc205224862c7641930c87679e98999d23c26113',
+  USYC_TELLER:       '0x9fdF14c5B14173D74C08Af27AebFf39240dC105A',
+
+  // CCTP v2 (Domain 26 = Arc Testnet)
+  CCTP_TOKEN_MESSENGER_V2:    '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA',
+  CCTP_MESSAGE_TRANSMITTER_V2:'0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275',
+  CCTP_TOKEN_MINTER_V2:       '0xb43db544E2c27092c107639Ad201b3dEfAbcF192',
+
+  // Gateway
+  GATEWAY_WALLET:  '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+  GATEWAY_MINTER:  '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B',
+
+  // Utilities
+  MULTICALL3:      '0xcA11bde05977b3631167028862bE2a173976CA11',
+  MULTICALL3_FROM: '0xEb7cc06E3D3b5F9F9a5fA2B31B477ff72bB9c8b6',
+  PERMIT2:         '0x000000000022D473030F116dDEE9F6B43aC78BA3',
+} as const;
+
+export const ARC_CCTP_DOMAIN = 26;
+```
+
+---
+
+## Package Installation
+
+```bash
+# Core App Kit
+npm install @circle-fin/app-kit
+
+# Standalone (if not using full kit)
+npm install @circle-fin/swap-kit
+npm install @circle-fin/bridge-kit
+
+# Adapters — choose ONE for client-side
+npm install @circle-fin/adapter-viem-v2 viem     # Recommended for Next.js
+
+# Server-side (Modular Wallets / API routes)
+npm install @circle-fin/adapter-circle-wallets
+```
+
+> **Required:** A Circle Console Kit Key for swap and bridge functionality.
+> Set as `CIRCLE_KIT_KEY` in `.env.local`.
+
+---
+
+## Viem Chain Config
+
+```typescript
+// lib/arc/viem-chain.ts
+import { defineChain } from 'viem';
+
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.testnet.arc.network'] },
+    public:  { http: ['https://rpc.testnet.arc.network'] },
+  },
+  blockExplorers: {
+    default: { name: 'ArcScan', url: 'https://testnet.arcscan.app' },
+  },
+  testnet: true,
+});
+```
+
+---
+
+## App Kit Setup
+
+```typescript
+// lib/arc/app-kit.ts
+import { createViemAdapter } from '@circle-fin/adapter-viem-v2';
+import { createWalletClient, http } from 'viem';
+import { arcTestnet } from './viem-chain';
+
+// Client-side adapter (used for swap / bridge UI interactions)
+export function createArcAdapter(walletClient: WalletClient) {
+  return createViemAdapter(walletClient);
+}
+```
+
+---
+
+## App Kit Swap
+
+```typescript
+import { swap } from '@circle-fin/swap-kit'; // or from '@circle-fin/app-kit'
+
+// Swap USDC → EURC on Arc Testnet
+const result = await swap({
+  from:     { adapter: viemAdapter, chain: 'Arc_Testnet' },
+  tokenIn:  'USDC',
+  tokenOut: 'EURC',
+  amountIn: '100.00',         // string, human-readable amount
+  config:   { kitKey: process.env.CIRCLE_KIT_KEY! },
+});
+
+// ⚠️ Supported tokens on Arc Testnet swap: USDC, EURC, cirBTC only
+```
+
+---
+
+## App Kit Bridge (CCTP)
+
+```typescript
+import { bridge } from '@circle-fin/bridge-kit'; // or from '@circle-fin/app-kit'
+
+// Bridge USDC from Arc Testnet → another chain
+const result = await bridge({
+  from:   { adapter: arcAdapter,   chain: 'Arc_Testnet' },
+  to:     { adapter: targetAdapter, chain: 'Ethereum_Sepolia' },
+  amount: '50.00',
+});
+// App Kit abstracts: burn → attestation → mint (all CCTP steps)
+// Arc CCTP Domain: 26
+```
+
+---
+
+## USYC Deposit Pattern
+
+USYC is deposited via the **Teller contract** (`USYC_TELLER`).
+Users must first be added to the **Entitlements** whitelist.
+
+```typescript
+// lib/arc/usyc.ts
+import { createPublicClient, createWalletClient, http, parseUnits, formatUnits } from 'viem';
+import { arcTestnet } from './viem-chain';
+import { CONTRACTS } from './contracts';
+
+// Teller ABI (deposit function — verify exact ABI from Circle docs or contract)
+const TELLER_ABI = [
+  {
+    name: 'deposit',
+    type: 'function',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [{ name: 'sharesReceived', type: 'uint256' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    name: 'previewDeposit',
+    type: 'function',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [{ name: 'shares', type: 'uint256' }],
+    stateMutability: 'view',
+  },
+] as const;
+
+const USDC_ERC20_ABI = [
+  {
+    name: 'approve',
+    type: 'function',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount',  type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
+  },
+] as const;
+
+export async function depositToUSYC(params: {
+  walletClient: WalletClient;    // Circle Modular Wallet client
+  amountUsdc: number;            // human-readable, e.g. 2400.00
+}): Promise<{ txHash: `0x${string}`; usycReceived: number; explorerUrl: string }> {
+  const amount = parseUnits(params.amountUsdc.toFixed(6), 6); // USDC = 6 decimals
+
+  // Step 1: Approve USDC spend on Teller
+  const approveTx = await params.walletClient.writeContract({
+    address: CONTRACTS.USDC,
+    abi: USDC_ERC20_ABI,
+    functionName: 'approve',
+    args: [CONTRACTS.USYC_TELLER, amount],
+  });
+  await publicClient.waitForTransactionReceipt({ hash: approveTx });
+
+  // Step 2: Deposit via Teller
+  const depositTx = await params.walletClient.writeContract({
+    address: CONTRACTS.USYC_TELLER,
+    abi: TELLER_ABI,
+    functionName: 'deposit',
+    args: [amount],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: depositTx });
+
+  return {
+    txHash: depositTx,
+    usycReceived: params.amountUsdc, // 1:1 approximate; parse from receipt events for accuracy
+    explorerUrl: `${ARC_TESTNET.explorerUrl}/tx/${depositTx}`,
+  };
+}
+
+export async function getCurrentAPY(): Promise<number> {
+  // TODO: query USYC contract for current yield rate
+  // Fallback to hardcoded value for demo stability
+  return 5.2;
+}
+```
+
+> ⚠️ **Entitlement check**: On testnet, verify whether the USYC Teller requires whitelisting via the Entitlements contract (`0xcc205...`). If deposits revert, this is the likely cause — check with Circle docs or testnet support.
+
+---
+
+## USDC Decimal Gotcha
+
+```typescript
+// USDC on Arc has two decimal contexts:
+//
+// 1. As native gas token (for gas estimation): 18 decimals
+//    → Used internally by Arc; you don't need to handle this manually
+//
+// 2. As ERC-20 token (transfers, approvals, deposits): 6 decimals
+//    → Use parseUnits(amount, 6) for all token operations
+
+// ✅ Correct
+const amount = parseUnits('100.00', 6);  // → 100_000_000n
+
+// ❌ Wrong
+const amount = parseEther('100.00');     // → 18 decimal interpretation
+```
+
+---
+
+## Circle SDK Structure
+
+All blockchain calls are isolated in `lib/arc/`:
+
+```
+lib/arc/
+  config.ts     ← Chain ID, RPC URLs, explorer URL, faucet URL
+  contracts.ts  ← All contract addresses (testnet)
+  viem-chain.ts ← Viem chain definition for arcTestnet
+  app-kit.ts    ← App Kit / adapter initialization
+  usyc.ts       ← USYC deposit, balance check, APY query
+  swap.ts       ← App Kit Swap (USDC ↔ EURC) — stretch goal
+  bridge.ts     ← CCTP bridge — stretch goal only
+```
+
+**Never import Circle SDK or viem directly in:**
+- API route handlers (import from `lib/arc/` only)
+- React components
+- `lib/inquisitor/` or `lib/ai/`
+
+---
+
+## Transaction Logging (Mandatory)
+
+Every on-chain transaction must be logged immediately after confirmation:
+
+```typescript
+import { translateTransaction } from '@/lib/translations/actions';
+
+await db.transaction.create({
+  data: {
+    userId,
+    type: 'USYC_DEPOSIT',
+    asset: 'USYC',
+    amountUsdc: amount,
+    txHash,
+    humanDescription: translateTransaction({ type: 'USYC_DEPOSIT', amountUsdc: amount, apy }),
+  },
+});
+```
+
+`humanDescription` must never contain asset tickers, hex values, or technical terms.
+
+---
+
+## Error Handling
+
+```typescript
+try {
+  const result = await depositToUSYC({ walletClient, amountUsdc });
+  return result;
+} catch (error) {
+  console.error('[USYC deposit failed]', { amountUsdc, error });
+  // Never expose blockchain error details to user
+  throw new Error('Transaction could not be completed. Please try again.');
+}
+```
+
+User-facing error messages:
+- Deposit failed → "Something went wrong — we'll retry in a moment"
+- Entitlement error → "Your account isn't set up for this yet — contact support"
+- Network slow → "Arc is taking a moment — your transaction is still on the way"
+- Insufficient balance → "Your available balance is $X — we've adjusted the plan"
+
+---
+
+## Explorer Link Helper
+
+```typescript
+// lib/arc/config.ts
+export function getExplorerUrl(txHash: string): string {
+  return `${ARC_TESTNET.explorerUrl}/tx/${txHash}`;
+}
+```
+
+---
+
+## Cut List — Do Not Implement for MVP
+
+- `lib/arc/bridge.ts` — CCTP cross-chain (stretch, Day 13 only)
+- `lib/arc/swap.ts` — App Kit Swap (stretch, only if EURC hedge needed)
+- HL perp positions — cut entirely
+- Polymarket integration — cut entirely
+- Opt-in Arc privacy — cut entirely
+
+Stub with `throw new Error('Not implemented in MVP')` if file exists.

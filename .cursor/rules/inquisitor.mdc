@@ -1,0 +1,259 @@
+---
+description: Rules specific to the Inquisitor module — educational Akinator dialogue, question pool, distribution, mandate
+globs: ["lib/inquisitor/**", "app/api/inquisitor/**", "components/inquisitor/**", "app/**/onboarding/**"]
+---
+
+# Inquisitor Module Rules
+
+## The New Design
+
+The Inquisitor is a **full-screen Akinator-style game**, not a two-column form. The user never sees a login screen before it — the dialogue is completely anonymous. Auth triggers only at execution time.
+
+**Three states:**
+1. Greeting — Stakinator character + intro bubble + "Let's go!"
+2. Dialogue — question → answer → optional educational insert → repeat
+3. Mandate card — plain-language profile summary + CTA
+
+---
+
+## lib/inquisitor/ — Starting Point, Not Gospel
+
+`lib/inquisitor/` contains a **draft implementation** written during early conceptualisation. It has **not been tested, reviewed, or run**. Read it for design intent; rewrite anything that doesn't work.
+
+Files and what to take from them:
+- `types.ts` — mandate axes, distribution types → use as-is or restructure
+- `questions.ts` — weight signals and question metadata → the 7-question educational pool below REPLACES the 20-question pool here; update this file
+- `distribution.ts` — Bayesian update, entropy calculation → conceptually correct, verify edge cases
+- `mandate.ts` — mandate builder, template deriver → use; update `mandateSummaryPrompt()` if needed
+- `index.ts` — public API sketch → rewrite to match new session model
+
+---
+
+## The 7-Question Educational Pool
+
+Replace the 20-question pool in `lib/inquisitor/questions.ts` with this pool:
+
+```typescript
+// Q1 — USDC literacy (always first)
+// Q2 — ARC literacy (always second)
+// Q3 — GOAL (always third)
+// Q4 — USYC/yield education (always fourth; adapts text based on crypto_fluency)
+// Q5 — RISK scenario (LLM-ordered, always shown)
+// Q6 — HORIZON (LLM-ordered, always shown)
+// Q7 — CAPITAL (LLM-ordered, always shown)
+```
+
+Each question has an optional `educationalInsert` field:
+```typescript
+type Question = {
+  id: string;
+  text: string;
+  options: AnswerOption[];
+  educationalInsert?: {
+    triggerOptionId: string; // which answer triggers the insert
+    title: string;
+    body: string;           // 2-4 plain sentences
+    learnMoreUrl?: string;  // external doc link
+    continueLabel: string;  // button text e.g. "Got it! →"
+  };
+};
+```
+
+Educational inserts are triggered client-side — no extra API call needed.
+The insert slides in, user reads, clicks continue, THEN the answer is submitted to API.
+
+---
+
+## Fixed vs LLM-Selected Questions
+
+- **Q1, Q2, Q3, Q4**: Fixed order, always shown in this sequence
+- **Q5, Q6, Q7**: LLM selects order after Q4 using `buildReasoningPrompt()`
+
+The API for Q1–Q4 can return the next question directly (no LLM call needed).
+Start calling Claude from Q5 onwards.
+
+---
+
+## Anonymous Session Model
+
+```prisma
+model AnonymousSession {
+  id           String   @id @default(cuid())
+  distribution Json     // AxisDistribution
+  askedIds     String[] // question IDs asked so far
+  mandateJson  Json?    // completed Mandate if dialogue done
+  userId       String?  // null until email auth; set at execution time
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+```
+
+The session ID is stored in a cookie (anonymous, not auth-linked).
+Session is linked to `User` after email verification via `POST /api/auth/link-session`.
+
+---
+
+## API Layer
+
+### POST /api/inquisitor/start
+```typescript
+// Input: none (reads cookie for existing session)
+// Action: create AnonymousSession, return GREETING state
+// Output: { sessionId, state: 'greeting' }
+// Note: always first endpoint called; sets sessionId cookie
+```
+
+### POST /api/inquisitor/next
+```typescript
+// Input: { sessionId } (after greeting acknowledged)
+// Action: return Q1_USDC_LITERACY
+// Output: { question: Q1, distribution: uniform }
+```
+
+### POST /api/inquisitor/answer
+```typescript
+// Input: { sessionId, questionId, optionId }
+// Action:
+//   1. Load AnonymousSession from DB
+//   2. applySignal(distribution, option.signal)
+//   3. If Q1–Q3: return next fixed question (no LLM call)
+//   4. If Q4+: call Claude buildReasoningPrompt() → { selected_question_id, reasoning }
+//   5. Check stopping criterion: isResolved() || askedIds.length >= 7
+//   6. If done: buildMandate(), call Claude for summaryHuman, store mandateJson in session
+// Output: SSE stream → { nextQuestion?, distribution, reasoning?, done, mandate? }
+```
+
+---
+
+## LLM Integration
+
+```typescript
+// Q5–Q7 selection only
+const prompt = buildReasoningPrompt(session); // from lib/inquisitor/index.ts
+const response = await anthropic.messages.create({
+  model: 'claude-sonnet-4-6',
+  max_tokens: 200,
+  system: 'You are the Inquisitor agent selecting the next question. Return only valid JSON.',
+  messages: [{ role: 'user', content: prompt }],
+});
+const { selected_question_id, reasoning } = JSON.parse(response.content[0].text);
+```
+
+Fallback if JSON parse fails: use fixed Q5→Q6→Q7 order. Never crash — always return a question.
+
+---
+
+## Educational Insert — Client Side
+
+Handle educational inserts entirely in the React component. Do NOT make an API call for them.
+
+```tsx
+// When user selects an answer with educationalInsert:
+if (selectedOption.triggersInsert && question.educationalInsert) {
+  setInsertState({ visible: true, insert: question.educationalInsert });
+  // Don't submit answer yet — wait for "Got it!" click
+} else {
+  submitAnswer(questionId, optionId);
+}
+
+// On "Got it!" click:
+setInsertState({ visible: false });
+submitAnswer(questionId, optionId); // now submit the original answer
+```
+
+---
+
+## UI Layout Rules
+
+```
+Full-screen centered column:
+  max-w-2xl mx-auto px-4 py-10
+
+Character zone (always visible):
+  <Image src="/icon.svg" width={120} height={120} className="rounded-2xl mx-auto" />
+  Framer Motion: animate={{ y: [0, -8, 0] }} transition={{ duration: 2.5, repeat: Infinity }}
+
+Speech bubble:
+  rounded-2xl bg-bg-surface border border-border px-6 py-5 text-text-primary font-display text-xl
+  relative — ::before pseudo-element for triangle pointing up toward character
+
+Answer grid:
+  grid grid-cols-2 gap-3 mt-6 (desktop)
+  flex flex-col gap-3 mt-6 (mobile)
+
+Answer button:
+  rounded-2xl border border-border bg-bg-surface px-5 py-4 text-text-primary font-medium
+  hover:border-accent-earn/40 hover:bg-accent-earn/5 transition-all duration-150
+  Selected: bg-accent-earn text-white border-accent-earn (200ms flash before next question)
+
+Progress:
+  flex gap-1.5 justify-center mt-8
+  Dot: w-2 h-2 rounded-full — filled: bg-accent-earn, empty: bg-bg-elevated
+```
+
+---
+
+## Probability Bars Panel
+
+The bars panel is **collapsible** — not visible by default in the main flow.
+
+```tsx
+// Toggle button — fixed, bottom-right
+<button className="fixed bottom-4 right-4 rounded-full border border-border bg-bg-base px-3 py-1.5 text-xs text-text-muted">
+  What Stakinator knows →
+</button>
+
+// Panel — slides in from right
+<motion.div
+  className="fixed right-0 top-0 h-full w-72 bg-bg-base border-l border-border p-5 shadow-xl z-40"
+  animate={{ x: open ? 0 : 280 }}
+>
+  {/* 6 axis groups + reasoning trace */}
+</motion.div>
+```
+
+For the demo, open this panel manually to show judges. The main user flow doesn't need it.
+
+Plain-English axis labels:
+```typescript
+const AXIS_LABELS = {
+  risk_tolerance: { very_conservative: 'Very safe', conservative: 'Cautious', moderate: 'Balanced', aggressive: 'Growth', speculative: 'Bold' },
+  goal_type: { preservation: 'Protect it', income: 'Earn income', growth: 'Grow it', specific_target: 'Hit a goal', exploration: 'Explore' },
+  horizon: { '<1y': 'Under 1 year', '1-3y': '1–3 years', '3-5y': '3–5 years', '5-10y': '5–10 years', '>10y': '10+ years' },
+  capital_tier: { '<$1k': 'Under $1k', '$1k-10k': '$1k–$10k', '$10k-100k': '$10k–$100k', '>$100k': '$100k+' },
+  liquidity: { anytime: 'Always accessible', occasional: 'Mostly accessible', lock_6mo: 'Can lock 6 months', lock_years: 'Can lock years' },
+  crypto_fluency: { none: 'New to this', heard_of: 'Familiar', user: 'Experienced', native: 'Expert' },
+};
+```
+
+---
+
+## Stopping Logic
+
+```typescript
+const MAX_QUESTIONS = 7;
+const RESOLUTION_THRESHOLD = 0.70;
+
+function shouldStop(session: AnonymousSession): boolean {
+  if (session.askedIds.length >= MAX_QUESTIONS) return true;
+  return isResolved(session.distribution, RESOLUTION_THRESHOLD);
+}
+```
+
+Educational inserts do NOT increment `askedIds.length`.
+
+---
+
+## Jargon Exception for Educational Inserts
+
+The global jargon rule ("zero crypto terms to user") has one exception:
+**Educational inserts intentionally introduce and define the terms USDC, ARC, and USYC.**
+
+The rule still applies everywhere else (mandate card, strategy, dashboard, execution, notifications).
+
+Within educational inserts, use the term + immediately define it in plain language:
+> "USDC is a digital dollar — 1 USDC = exactly $1, always."
+> "ARC is a fast financial network built by the creators of USDC."
+> "USYC is backed by US government bonds — the safest investment in the world."
+
+Never use DeFi, protocol, gas, staking, yield, APY, seed phrase, wallet, or blockchain in educational inserts.

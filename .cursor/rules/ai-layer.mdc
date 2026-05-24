@@ -1,0 +1,193 @@
+---
+description: Rules for all LLM/Claude API calls — prompts, streaming, structured output, fallbacks
+globs: ["lib/ai/**", "app/api/inquisitor/**", "app/api/operator/**"]
+---
+
+# AI Layer Rules
+
+## Single Client, One Model
+
+```typescript
+// lib/ai/client.ts — the only place Anthropic SDK is initialized
+import Anthropic from '@anthropic-ai/sdk';
+
+export const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+});
+
+export const MODEL = 'claude-sonnet-4-6'; // Do not change without updating this rule
+```
+
+Import `anthropic` and `MODEL` from here. Never instantiate `new Anthropic()` anywhere else.
+
+## Three LLM Call Sites
+
+### 1. Inquisitor — Question Selection
+File: `lib/ai/inquisitor.ts`
+- Input: `buildReasoningPrompt(session)` from `lib/inquisitor/index.ts`
+- Output: `{ selected_question_id: string, reasoning: string }`
+- Max tokens: 200
+- Stream: No (reasoning is short, latency acceptable)
+- Fallback: `pickNextQuestion()` from `lib/inquisitor/distribution.ts`
+
+```typescript
+export async function selectNextQuestion(session: InquisitorSession): Promise<{
+  questionId: string;
+  reasoning: string;
+}> {
+  try {
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 200,
+      system: 'You are the Inquisitor question selection agent. Return only valid JSON.',
+      messages: [{ role: 'user', content: buildReasoningPrompt(session) }],
+    });
+    const parsed = JSON.parse(response.content[0].text);
+    return { questionId: parsed.selected_question_id, reasoning: parsed.reasoning };
+  } catch {
+    // Fallback: entropy-based selection, no reasoning trace
+    const question = pickNextQuestion(session.distribution, QUESTION_POOL, session.asked);
+    return { questionId: question!.id, reasoning: '' };
+  }
+}
+```
+
+### 2. Operator Strategy — Allocation Planning
+File: `lib/ai/operator.ts`
+- Input: mandate + market data
+- Output: `{ template, usycPct, liquidPct, growthPct, explanation }` (streaming)
+- Stream: Yes — pipe explanation text to SSE; extract JSON from full response
+- Fallback: Vault template with default weights
+
+```typescript
+export async function* streamStrategy(mandate: Mandate, marketData: MarketData) {
+  const stream = anthropic.messages.stream({
+    model: MODEL,
+    max_tokens: 800,
+    system: 'You are Stakinator\'s portfolio strategy engine. Return structured JSON.',
+    messages: [{ role: 'user', content: buildStrategyPrompt(mandate, marketData) }],
+  });
+
+  let fullText = '';
+  for await (const chunk of stream) {
+    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+      fullText += chunk.delta.text;
+      yield chunk.delta.text; // stream to SSE
+    }
+  }
+
+  // After stream ends, extract JSON
+  try {
+    return extractJSON(fullText); // parse { template, usycPct, liquidPct, growthPct, explanation }
+  } catch {
+    return VAULT_FALLBACK; // { template: 'Vault', usycPct: 85, liquidPct: 15, growthPct: 0, explanation: '...' }
+  }
+}
+```
+
+### 3. Operator Loop — Rebalance Decision + Notification
+File: `lib/ai/operator.ts`
+- Input: current positions + target allocation + market update
+- Output: `{ shouldRebalance, reason, newAllocation }` + notification string
+- Stream: notification text only
+- Fallback: `shouldRebalance: false, reason: 'API unavailable'`
+
+## Prompt Principles
+
+**Every prompt must have:**
+1. A system message describing the agent's role
+2. A clear task with explicit output format
+3. Vocabulary rules from `vocabRules` (based on user's `crypto_fluency`)
+
+**Every prompt must NOT contain:**
+- Real user PII (email address, full name)
+- Actual wallet addresses
+- Private keys or API keys
+
+**Structured output:** Always ask for JSON explicitly. Never rely on the model guessing the format.
+
+```typescript
+// Good: explicit JSON format instruction
+`Return ONLY valid JSON with no markdown formatting:
+{ "shouldRebalance": boolean, "reason": string, "newUsycPct": number }`
+
+// Bad: ambiguous
+`Tell me if I should rebalance.`
+```
+
+## SSE Streaming Pattern
+
+For strategy and loop endpoints that stream to the frontend:
+
+```typescript
+// In Next.js API route
+const encoder = new TextEncoder();
+const stream = new TransformStream();
+const writer = stream.writable.getWriter();
+
+// Run LLM in background
+(async () => {
+  for await (const text of streamStrategy(mandate, marketData)) {
+    await writer.write(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`));
+  }
+  await writer.write(encoder.encode(`data: ${JSON.stringify({ done: true, allocation })}\n\n`));
+  await writer.close();
+})();
+
+return new Response(stream.readable, {
+  headers: {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+  },
+});
+```
+
+Frontend consumption:
+```typescript
+const eventSource = new EventSource('/api/operator/strategy');
+eventSource.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (data.text) appendToExplanation(data.text);
+  if (data.done) { setAllocation(data.allocation); eventSource.close(); }
+};
+```
+
+## JSON Extraction Helper
+
+```typescript
+// lib/ai/utils.ts
+export function extractJSON<T>(text: string): T {
+  // Handle markdown code blocks
+  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  return JSON.parse(cleaned) as T;
+}
+```
+
+## Prompt Caching
+
+For repeated structured calls (strategy, loop), use Anthropic prompt caching on the system message:
+
+```typescript
+await anthropic.messages.create({
+  model: MODEL,
+  system: [
+    {
+      type: 'text',
+      text: OPERATOR_SYSTEM_PROMPT, // long, stable system prompt
+      cache_control: { type: 'ephemeral' }, // cache for 5 minutes
+    }
+  ],
+  messages: [{ role: 'user', content: dynamicPrompt }],
+});
+```
+
+This reduces cost and latency for repeated strategy/loop calls during demo.
+
+## Cost Awareness
+
+For the hackathon demo (30-50 users), total LLM cost should stay under $20.
+- Inquisitor: ~200 output tokens × 7 questions × 50 users = 70K tokens → ~$0.35
+- Strategy: ~800 output tokens × 50 users = 40K tokens → ~$0.20
+- Loop: ~300 output tokens × 2 loops × 50 users = 30K tokens → ~$0.15
+
+Total ≈ $1. Well within budget. No rate limiting needed for hackathon.

@@ -1,0 +1,100 @@
+// Stakinator — Prisma schema.
+// Schema spec: docs/prd/00-architecture.md → "Database Schema" section.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Anonymous session — created during Inquisitor before auth.
+// Linked to User after email verification at execution time.
+model AnonymousSession {
+  id             String   @id @default(cuid())
+  distribution   Json
+  askedIds       String[]
+  mandateJson    Json?
+  allocationJson Json?
+  userId         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  walletAddress String?       @unique
+  createdAt     DateTime      @default(now())
+  mandate       Mandate?
+  positions     Position[]
+  transactions  Transaction[]
+  rebalances    Rebalance[]
+}
+
+model Mandate {
+  id             String      @id @default(cuid())
+  userId         String      @unique
+  user           User        @relation(fields: [userId], references: [id])
+  riskTolerance  String
+  horizon        String
+  capitalTier    String
+  goalType       String
+  liquidity      String
+  cryptoFluency  String
+  confidence     Json
+  summaryHuman   String
+  questionsAsked Int
+  template       String
+  createdAt      DateTime    @default(now())
+  allocation     Allocation?
+}
+
+model Allocation {
+  id          String    @id @default(cuid())
+  mandateId   String    @unique
+  mandate     Mandate   @relation(fields: [mandateId], references: [id])
+  usycPct     Float
+  liquidPct   Float
+  growthPct   Float
+  explanation String
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Position {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  asset      String
+  amountUsdc Float
+  percentage Float
+  updatedAt  DateTime @updatedAt
+}
+
+model Transaction {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  type             String
+  asset            String
+  amountUsdc       Float
+  txHash           String?
+  humanDescription String
+  createdAt        DateTime @default(now())
+}
+
+model Rebalance {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  trigger            String
+  driftDetected      Float
+  previousAllocation Json
+  newAllocation      Json
+  explanation        String
+  executed           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+}

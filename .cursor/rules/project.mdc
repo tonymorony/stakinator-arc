@@ -1,0 +1,236 @@
+---
+description: Stakinator project-wide rules — architecture, conventions, and non-negotiable constraints
+globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+---
+
+# Stakinator — Project Rules
+
+## What This Project Is
+
+Stakinator is an AI wealth manager for non-crypto users. The AI agent (not the user) handles all DeFi complexity. The app starts with a game-like educational dialogue — no login required — and only asks for an email when the user is ready to execute.
+
+**Flow:** Greeting (anonymous) → Educational Akinator dialogue → Mandate → Strategy → Auth modal → Execution → Dashboard
+
+**Three agentic layers:**
+1. **Inquisitor** — educational dialogue + entropy-driven question selection → mandate
+2. **Operator: Strategy** — mandate + market data → allocation plan (LLM)
+3. **Operator: Execution** — allocation plan → on-chain Arc transactions
+4. **Operator: Loop** — daily drift check → optional rebalance (LLM decision)
+
+---
+
+## Absolute Constraints (Never Violate)
+
+### 1. Zero Crypto Jargon in User-Facing Strings
+
+**Never render these words to the user — EXCEPT in Inquisitor educational inserts:**
+`wallet`, `blockchain`, `gas`, `DeFi`, `staking`, `yield`, `APY`, `protocol`, `token`, `contract`, `seed phrase`, `private key`, `bridge`, `slippage`, `IL`, `liquidity`, `pool`, `MEV`, `tx`, `txHash`, `EURC`, `Polygon`
+
+**Special exception — Inquisitor educational inserts only:**
+`USDC`, `ARC`, `USYC` may appear in educational inserts because those inserts explicitly define the terms. The insert must always pair the term with a plain-English definition in the same sentence.
+
+**Always use instead (everywhere except educational inserts):**
+- USYC → "Safe Treasury Fund" or "US Treasury fund"
+- USDC → "cash" or "ready cash" or "dollars"
+- Gas fee → never shown, never mentioned
+- Wallet → never mentioned
+- Bridge → "transfer"
+- Staking → "putting to work" or "earning interest"
+- APY → "per year" or "annually"
+- txHash → "transaction ID" (only in explorer link tooltip)
+- ARC → never shown outside educational context
+
+**All user-facing strings outside educational inserts must route through `lib/translations/actions.ts`.** If you're writing a string that the user will see and it mentions any token or protocol outside an educational insert, you are doing it wrong.
+
+### 2. No User Actions for Blockchain Operations
+
+The user must never:
+- Sign a transaction (no MetaMask popup, no Circle SDK signing prompts)
+- Approve a token spend manually
+- Pay gas
+- Choose a network
+- Copy an address
+
+All of this is handled by Circle Modular Wallets SDK operating on the user's behalf. If you're about to write code that asks the user to do any of the above, stop and find the SDK method that does it for them.
+
+### 3. LLM Calls Are Not Optional for Agentic Decision Points
+
+Three decisions **must** go through Claude:
+1. Inquisitor: next question selection (with reasoning trace)
+2. Operator Strategy: allocation template + weights
+3. Operator Loop: rebalance yes/no + notification text
+
+These decisions must never be replaced with pure if/else logic, even as a "temporary" measure. The reasoning trace is what makes the product demo-worthy. If the LLM call fails, use the fallback (entropy-based selection / Vault template / "portfolio on track") — but always try Claude first.
+
+---
+
+## Tech Stack (Do Not Deviate)
+
+```
+Frontend:   Next.js 16 (App Router, Turbopack), TypeScript strict, Tailwind CSS 3
+Animation:  Framer Motion (probability bars, number transitions, SSE streams)
+State:      React Server Components + lightweight useState in clients
+AI:         @anthropic-ai/sdk, claude-sonnet-4-5 (all LLM calls)
+Blockchain: Circle App Kit + viem on Arc Testnet; server-derived wallets
+Database:   Prisma + Postgres (in-memory fallback for dev)
+Auth:       Email + OTP, signed-cookie sessions (custom, no NextAuth)
+```
+
+---
+
+## Project Structure
+
+```
+src/app/
+  page.tsx               ← Landing (anonymous, no auth gate)
+  (app)/onboarding/      ← Inquisitor dialogue (anonymous session)
+  (app)/strategy/        ← Allocation card + execution stream
+  (app)/dashboard/       ← Portfolio view (requires auth)
+  api/inquisitor/        ← start | next | answer | back | reset (anonymous)
+  api/operator/          ← strategy | execute | loop
+  api/auth/              ← email | otp | bootstrap | link-session | me | signout
+  api/wallet/            ← balance | sync
+
+src/components/
+  inquisitor/            ← Dialogue, ProbabilityBarsPanel, MandateCard, …
+  strategy/              ← AllocationCard, PlanExplanation, WalletFundingStep
+  execution/             ← ExecutionProgress, TransactionRow
+  dashboard/             ← PortfolioOverview, BucketBreakdown, ActionLog
+  auth/                  ← AuthModal, AccountWidget
+
+lib/
+  inquisitor/            ← Question pool, distribution engine, mandate builder
+  ai/                    ← Anthropic SDK client, prompts for each agent
+  arc/                   ← Circle App Kit + viem glue (USYC, EURC, wallet)
+  auth/                  ← OTP, session HMAC, user store
+  db/                    ← Prisma client + per-entity repositories
+  operator/drift.ts      ← drift snapshot + simulation
+  portfolio/buckets.ts   ← shared allocation ↔ DB position math
+  translations/          ← on-chain event → human-readable string
+```
+
+---
+
+## Coding Conventions
+
+### TypeScript
+
+- Strict mode: `"strict": true` in tsconfig
+- No `any` types
+- All API route handlers typed with Next.js `NextRequest` / `NextResponse`
+- All DB queries return typed Prisma models
+- Prefer `type` over `interface` for data shapes; `interface` only for class contracts
+
+### API Routes
+
+Pattern for all `/api/` routes:
+```typescript
+export async function POST(req: NextRequest) {
+  // NOTE: /api/inquisitor/* routes do NOT require auth — they use anonymous sessions.
+  // All other routes require auth:
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json();
+  // ... validate with zod
+  // ... business logic
+  return NextResponse.json({ result });
+}
+```
+
+For streaming routes (strategy, loop):
+```typescript
+return new Response(stream, {
+  headers: {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  },
+});
+```
+
+### LLM Calls
+
+All Anthropic SDK calls go through `lib/ai/client.ts`:
+```typescript
+// lib/ai/client.ts
+import Anthropic from '@anthropic-ai/sdk';
+export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+```
+
+Always use the model exported as `MODEL` from `lib/ai/client.ts` (currently `claude-sonnet-4-5`). Never hardcode a different model without updating this rule.
+
+Always include a system prompt. Never call the API with only a user message.
+
+For structured output: ask for JSON in the prompt, parse with `JSON.parse()`, catch errors and use fallback.
+
+For streaming: use `anthropic.messages.stream()` and pipe to SSE.
+
+### Circle SDK
+
+All Circle SDK calls go through `lib/arc/client.ts`. Never import Circle SDK directly in API routes or components.
+
+### Error Handling
+
+- API routes: catch errors, return `{ error: string }` with appropriate status code
+- Never let unhandled errors reach the user
+- Log all blockchain transaction errors with full context
+- User-facing error messages: plain English, no stack traces, no error codes
+
+### Components
+
+- Server Components by default; add `'use client'` only when needed (event handlers, hooks, animation)
+- All data fetching in Server Components; pass data as props to Client Components
+- shadcn/ui for all base UI elements — do not build custom buttons, inputs, cards from scratch
+- No inline styles; Tailwind classes only
+
+### Database
+
+- All queries through Prisma — no raw SQL
+- Always use transactions for multi-step operations (e.g., create Allocation + update Mandate)
+- Never expose internal IDs in API responses unless necessary
+- Use `select` to limit fields returned — never return full DB rows to the client
+
+---
+
+## The Accessibility Layer — Enforcement Pattern
+
+Every module that produces user-visible text about on-chain events MUST follow this pattern:
+
+```typescript
+// ✅ CORRECT
+import { translateTransaction } from '@/lib/translations/actions';
+const description = translateTransaction({ type: 'USYC_DEPOSIT', amountUsdc: 2400, apy: 5.2 });
+// → "Moved $2,400 into a safe Treasury fund — earns 5.2% annually"
+
+// ❌ WRONG
+const description = `Deposited ${amount} USDC into USYC at ${apy}% APY`;
+```
+
+The translation function is the only place where asset names and technical terms are written. Everywhere else, use the translated output.
+
+---
+
+## Demo Priorities (Hackathon Context)
+
+**Correctness over completeness.** Three modules at 70% beats one at 100% and two broken.
+
+**Judge-visible reasoning is mandatory.** The probability bars, the strategy streaming, and the rebalance reasoning trace are not optional polish — they are the judging criteria.
+
+**Real transactions on Arc testnet, always.** No mocked transactions in the demo. If Arc testnet is down, the demo is broken. Test this every day.
+
+**Cut list is sacred.** These are cut and must not be implemented:
+- Polymarket / prediction markets
+- HL perp basis trades
+- CCTP cross-chain bridge (unless Day 13 is available)
+- Real daily cron (use "Simulate next day" button)
+- Opt-in Arc privacy
+
+---
+
+## References
+
+- `docs/ARCHITECTURE.md` — system map, repo layout, persistence model
+- `docs/DEMO.md` — setup, demo script, degraded modes
+- `.cursor/rules/blockchain.mdc` — Arc / Circle SDK conventions
+- `README.md` — public-facing positioning
