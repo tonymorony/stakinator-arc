@@ -503,10 +503,11 @@ function OtpStep({
     <div>
       <WizardIcon size={64} className="mx-auto mb-4" />
       <h2 id={headingId} className="text-center font-display text-xl text-text-primary">
-        Check your email
+        Enter your code
       </h2>
       <p className="mt-1 text-center text-sm text-text-muted">
-        We sent a 6-digit code to <span className="text-text-primary">{email}</span>.
+        Enter the 6-digit code below to continue as{" "}
+        <span className="text-text-primary">{email}</span>.
       </p>
 
       <div className="mt-6 flex justify-center gap-2">
@@ -544,9 +545,11 @@ function OtpStep({
       ) : null}
 
       {devCode ? (
-        <p className="mt-3 text-center text-xs text-text-muted">
-          Dev mode — code for this session:{" "}
-          <span className="num text-text-primary">{devCode}</span>
+        <p className="mt-3 rounded-xl border border-accent-earn/25 bg-accent-earn/5 px-3 py-2.5 text-center text-sm text-text-secondary">
+          Your verification code:{" "}
+          <span className="num font-semibold tracking-widest text-text-primary">
+            {devCode}
+          </span>
         </p>
       ) : null}
 

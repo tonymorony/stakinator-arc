@@ -7,9 +7,8 @@ export const runtime = "nodejs";
 /**
  * POST /api/auth/email
  * Input: { email }
- * Issues a one-time code. Dev returns the code in the response so the modal
- * can show it inline; once a real email provider is configured, drop the
- * devCode field and rely solely on the inbox.
+ * Issues a one-time code. Until a real email provider is wired up, the code is
+ * returned in the response so the modal can display it inline (dev + production).
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = (await req.json().catch(() => null)) as { email?: string } | null;
@@ -24,11 +23,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const { email: normalised, devCode } = await issueOtp(email);
-    const exposeDevCode = process.env.NODE_ENV !== "production";
+    // No email provider yet — surface the code in the modal (dev + production).
     return NextResponse.json({
       ok: true,
       email: normalised,
-      ...(exposeDevCode && devCode ? { devCode } : {}),
+      ...(devCode ? { devCode } : {}),
     });
   } catch (err) {
     if (err instanceof OtpRateLimitError) {
