@@ -2,6 +2,7 @@
   <img src="public/icon.svg" alt="Stakinator" width="100" />
   <h1>Stakinator</h1>
   <p><strong>An agentic interface for modern finance.</strong></p>
+  <p><a href="https://www.stakinator.app/">Live demo → stakinator.app</a></p>
   <p>The kind of app you could hand to your mom and watch her invest in tokenized
   Treasuries — without ever hearing the words <em>wallet</em>, <em>gas</em>, or
   <em>blockchain</em>.</p>
